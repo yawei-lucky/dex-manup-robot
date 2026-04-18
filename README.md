@@ -1,13 +1,13 @@
 # dex-manup-robot
 
-This repository hosts the first-step movement execution baseline for G1.
+This repository hosts the step-1 movement execution baseline for G1, now aligned to a **Holosoma-first** integration path.
 
 ## Step-1 Scope (frozen)
 
 - Build only walk/stop closed-loop execution.
-- Exclude grasping and complex global planning for now.
-- Use SDK2 Python as the primary integration route.
-- Keep `holosoma` as an interchangeable low-level backend option.
+- Exclude grasping and complex global planning.
+- Fix **Holosoma as the walking backend** for this stage.
+- Keep SDK2 as fallback only when Holosoma control entry/stop reliability fails.
 
 ## Milestones
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatcher command templates for step-1 movement execution."""
+"""Dispatcher command templates for Holosoma-first movement execution."""
 
 from __future__ import annotations
 
@@ -11,6 +11,10 @@ from typing import Any
 class DispatchCommand:
     name: str
     payload: dict[str, Any]
+
+
+def build_set_velocity(vx: float, vy: float, yaw_rate: float) -> DispatchCommand:
+    return DispatchCommand("set_velocity", {"vx": vx, "vy": vy, "yaw_rate": yaw_rate})
 
 
 def build_forward(duration_ms: int, speed: float = 0.2) -> DispatchCommand:
@@ -38,8 +42,20 @@ def build_e_stop(reason: str = "emergency") -> DispatchCommand:
     return DispatchCommand("e_stop", {"reason": reason})
 
 
+def build_velocity_semantic_probe() -> list[DispatchCommand]:
+    return [
+        build_set_velocity(0.2, 0.0, 0.0),
+        build_set_velocity(-0.2, 0.0, 0.0),
+        build_set_velocity(0.0, 0.2, 0.0),
+        build_set_velocity(0.0, -0.2, 0.0),
+        build_set_velocity(0.0, 0.0, 0.4),
+        build_set_velocity(0.0, 0.0, -0.4),
+    ]
+
+
 def main() -> int:
     templates = [
+        *build_velocity_semantic_probe(),
         build_forward(120),
         build_turn("left", 80),
         build_stop("camera:target_reached"),
