@@ -1,0 +1,7 @@
+{"found": false, "x_error": 0.0, "area_ratio": 0.00, "within_grasp_zone": false}
+{"found": true,  "x_error": -0.45, "area_ratio": 0.02, "within_grasp_zone": false}
+{"found": true,  "x_error": -0.18, "area_ratio": 0.03, "within_grasp_zone": false}
+{"found": true,  "x_error": -0.05, "area_ratio": 0.05, "within_grasp_zone": false}
+{"found": true,  "x_error": -0.03, "area_ratio": 0.10, "within_grasp_zone": false}
+{"found": true,  "x_error": -0.02, "area_ratio": 0.16, "within_grasp_zone": false}
+{"found": true,  "x_error": -0.01, "area_ratio": 0.20, "within_grasp_zone": true}
