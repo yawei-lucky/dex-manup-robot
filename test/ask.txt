@@ -1,0 +1,37 @@
+base) kylin@kylin-P15-23:~/robotics/dex-manup-robot/test$ python3 navila_holosoma_bridge.py --demo-sequence
+Traceback (most recent call last):
+  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 303, in __init__
+    import rclpy
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 49, in <module>
+    from rclpy.signals import install_signal_handlers
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/signals.py", line 15, in <module>
+    from rclpy.exceptions import InvalidHandle
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/exceptions.py", line 15, in <module>
+    from rclpy.impl.implementation_singleton import rclpy_implementation as _rclpy
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/impl/implementation_singleton.py", line 32, in <module>
+    rclpy_implementation = import_c_library('._rclpy_pybind11', package)
+  File "/opt/ros/humble/lib/python3.10/site-packages/rpyutils/import_c_library.py", line 39, in import_c_library
+    return importlib.import_module(name, package=package)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/kylin/anaconda3/lib/python3.13/importlib/__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'rclpy._rclpy_pybind11'
+The C extension '/opt/ros/humble/lib/python3.10/site-packages/_rclpy_pybind11.cpython-313-x86_64-linux-gnu.so' isn't present on the system. Please refer to 'https://docs.ros.org/en/humble/Guides/Installation-Troubleshooting.html#import-failing-without-library-present-on-the-system' for possible solutions
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 503, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 472, in main
+    backend = build_backend(args)
+  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 457, in build_backend
+    return HolosomaRos2Backend(cmd_vel_topic=args.cmd_vel_topic, state_topic=args.state_topic)
+  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 308, in __init__
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+RuntimeError: ROS2 backend requested but rclpy / geometry_msgs / std_msgs is unavailable. Use --dry-run or source your ROS2 environment first.
+这是什么问题

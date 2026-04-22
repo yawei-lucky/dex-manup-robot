@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""NaVILA-style mid-level action adapter for Holosoma (improved v2).
+"""NaVILA-style mid-level action adapter for Holosoma.
 
-Goals of this revision:
-- bootstrap to a stable standing state in simulation when requested
-- continuous cmd_vel streaming so Holosoma ROS2 timeout does not zero motion early
-- clear mode semantics: stand = hold standing, walk = locomotion mode
-- actions end in a stable stand state instead of falling after motion
-- stdin/demo/scenario paths all share the same motion lifecycle
+This script gives you a thin middle layer between:
+  - top layer: NaVILA-style textual actions or a simple task FSM
+  - bottom layer: Holosoma locomotion running with ROS2 input
 
-Holosoma side expected configuration:
+Holosoma side expected configuration (from official README):
   --task.velocity-input ros2
   --task.state-input ros2
   --task.interface lo          # for sim-to-sim
@@ -21,6 +18,16 @@ Published topics:
 
 State commands:
   start, stop, walk, stand, init
+
+This file supports three workflows:
+1) Parse NaVILA-style text and execute it:
+      python navila_holosoma_bridge.py --stdin
+2) Run a fixed demo sequence against Holosoma:
+      python navila_holosoma_bridge.py --demo-sequence
+3) Test a simple target-approach FSM from JSONL observations:
+      python navila_holosoma_bridge.py --scenario demo.jsonl
+
+For offline testing without ROS2 / Holosoma, add --dry-run.
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 
 # -----------------------------
@@ -65,8 +72,8 @@ class MidLevelAction:
 @dataclass
 class TargetObservation:
     found: bool
-    x_error: float = 0.0
-    area_ratio: float = 0.0
+    x_error: float = 0.0          # normalized horizontal error, left:-1 ~ right:+1
+    area_ratio: float = 0.0       # bbox area / image area
     within_grasp_zone: bool = False
     label: str = "target"
 
@@ -76,6 +83,19 @@ class TargetObservation:
 # -----------------------------
 
 class NavilaTextParser:
+    """Parse NaVILA-like natural language actions into structured commands.
+
+    Supported examples:
+      - moving forward 75cm
+      - move forward 0.8 meters
+      - turn left 15 degrees
+      - turn right 30 degree
+      - stop
+      - pregrasp
+      - close gripper
+      - lift arm
+    """
+
     _DIST_RE = re.compile(
         r"(?P<dir>move|moving)\s+(?P<fb>forward|backward)\s+(?P<val>[-+]?\d+(?:\.\d+)?)\s*(?P<unit>m|meter|meters|cm|centimeter|centimeters)",
         re.IGNORECASE,
@@ -94,7 +114,7 @@ class NavilaTextParser:
             return [MidLevelAction(ActionType.STOP, raw_text=text)]
         if "pregrasp" in text_norm or "pre-grasp" in text_norm:
             return [MidLevelAction(ActionType.PREGRASP, raw_text=text)]
-        if "close gripper" in text_norm or text_norm in {"grasp", "grasp now"}:
+        if "close gripper" in text_norm or "grasp" == text_norm or "grasp now" in text_norm:
             return [MidLevelAction(ActionType.CLOSE_GRIPPER, raw_text=text)]
         if "lift" in text_norm:
             return [MidLevelAction(ActionType.LIFT, raw_text=text)]
@@ -147,7 +167,20 @@ class TaskState(str, Enum):
 
 
 class SimpleTargetFSM:
-    def __init__(self, align_thresh: float = 0.12, reach_area_ratio: float = 0.18) -> None:
+    """A deliberately simple first-step FSM.
+
+    Goal:
+      identify target -> approach -> stop -> pregrasp -> grasp -> lift
+
+    This is *not* a learned manipulation policy. It is the fastest practical
+    decomposition to validate the system integration.
+    """
+
+    def __init__(
+        self,
+        align_thresh: float = 0.12,
+        reach_area_ratio: float = 0.18,
+    ) -> None:
         self.state = TaskState.SEARCH
         self.align_thresh = align_thresh
         self.reach_area_ratio = reach_area_ratio
@@ -179,10 +212,15 @@ class SimpleTargetFSM:
                 self.state = TaskState.ALIGN
                 return self.step(obs)
             if obs.area_ratio < self.reach_area_ratio:
-                return [MidLevelAction(ActionType.MOVE_FORWARD, value=0.40, unit="m")]
+                # Move in short chunks for safety and re-evaluate.
+                return [MidLevelAction(ActionType.MOVE_FORWARD, value=0.25, unit="m")]
             self.state = TaskState.REACHED
 
         if self.state == TaskState.REACHED:
+            if obs.within_grasp_zone:
+                self.state = TaskState.PREGRASP
+                return [MidLevelAction(ActionType.STOP)]
+            # Conservative fallback: stop anyway when close enough.
             self.state = TaskState.PREGRASP
             return [MidLevelAction(ActionType.STOP)]
 
@@ -218,9 +256,6 @@ class BackendBase:
     def stand_mode(self) -> None:
         raise NotImplementedError
 
-    def init_pose(self) -> None:
-        raise NotImplementedError
-
     def send_velocity(self, vx: float, vy: float, wz: float) -> None:
         raise NotImplementedError
 
@@ -244,9 +279,6 @@ class DryRunBackend(BackendBase):
     def stand_mode(self) -> None:
         print("[dry-run] state=stand")
 
-    def init_pose(self) -> None:
-        print("[dry-run] state=init")
-
     def send_velocity(self, vx: float, vy: float, wz: float) -> None:
         print(f"[dry-run] cmd_vel vx={vx:.3f} vy={vy:.3f} wz={wz:.3f}")
 
@@ -258,13 +290,21 @@ class DryRunBackend(BackendBase):
 
 
 class HolosomaRos2Backend(BackendBase):
+    """ROS2 backend using the official Holosoma topics.
+
+    Holosoma README documents:
+      - /cmd_vel as geometry_msgs/TwistStamped
+      - /holosoma/state_input as std_msgs/String
+      - commands: walk, stand, start, stop, init
+    """
+
     def __init__(self, cmd_vel_topic: str = "/cmd_vel", state_topic: str = "/holosoma/state_input") -> None:
         try:
             import rclpy
             from geometry_msgs.msg import TwistStamped
             from rclpy.node import Node
             from std_msgs.msg import String
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             raise RuntimeError(
                 "ROS2 backend requested but rclpy / geometry_msgs / std_msgs is unavailable. "
                 "Use --dry-run or source your ROS2 environment first."
@@ -279,23 +319,19 @@ class HolosomaRos2Backend(BackendBase):
         self.node = Node("navila_holosoma_bridge")
         self.cmd_pub = self.node.create_publisher(TwistStamped, cmd_vel_topic, 10)
         self.state_pub = self.node.create_publisher(String, state_topic, 10)
-        self._last_state_text = None
 
-    def _publish_state(self, text: str, force: bool = False) -> None:
-        if not force and text == self._last_state_text:
-            return
+    def _publish_state(self, text: str) -> None:
         msg = self._String()
         msg.data = text
         self.state_pub.publish(msg)
         self._rclpy.spin_once(self.node, timeout_sec=0.01)
-        self._last_state_text = text
         print(f"[ros2] state={text}")
 
     def start_policy(self) -> None:
-        self._publish_state("start", force=True)
+        self._publish_state("start")
 
     def stop_policy(self) -> None:
-        self._publish_state("stop", force=True)
+        self._publish_state("stop")
 
     def walk_mode(self) -> None:
         self._publish_state("walk")
@@ -304,11 +340,12 @@ class HolosomaRos2Backend(BackendBase):
         self._publish_state("stand")
 
     def init_pose(self) -> None:
-        self._publish_state("init", force=True)
+        self._publish_state("init")
 
     def send_velocity(self, vx: float, vy: float, wz: float) -> None:
         msg = self._TwistStamped()
         try:
+            # Works on standard ROS2 geometry_msgs/TwistStamped.
             msg.header.stamp = self.node.get_clock().now().to_msg()
             msg.header.frame_id = "base_link"
         except Exception:
@@ -324,8 +361,8 @@ class HolosomaRos2Backend(BackendBase):
         self.send_velocity(0.0, 0.0, 0.0)
 
     def execute_manip_action(self, action: MidLevelAction) -> None:
+        # Placeholder by design: manipulation should be bound to your arm/hand executor.
         self.zero_velocity()
-        self.stand_mode()
         print(f"[ros2] placeholder manip action={action.action.value} (bind to arm SDK here)")
 
 
@@ -337,77 +374,14 @@ class ActionExecutor:
     def __init__(
         self,
         backend: BackendBase,
-        linear_speed_mps: float = 0.45,
-        angular_speed_degps: float = 60.0,
-        settle_sec: float = 0.4,
-        publish_hz: float = 10.0,
-        bootstrap_hold_sec: float = 1.0,
+        linear_speed_mps: float = 0.25,
+        angular_speed_degps: float = 35.0,
+        settle_sec: float = 0.2,
     ) -> None:
         self.backend = backend
         self.linear_speed_mps = linear_speed_mps
         self.angular_speed_degps = angular_speed_degps
         self.settle_sec = settle_sec
-        self.publish_hz = publish_hz
-        self.bootstrap_hold_sec = bootstrap_hold_sec
-        self._policy_started = False
-        self._mode = None  # None / "stand" / "walk"
-
-    def bootstrap_to_stand(self) -> None:
-        """Bring robot/sim to a stable standing wait state.
-
-        This is especially useful in sim. On real robot you can disable it if
-        the platform already stands stably by itself.
-        """
-        print("[bootstrap] init -> start -> stand")
-        self.backend.init_pose()
-        time.sleep(1.0)
-        self.backend.start_policy()
-        self._policy_started = True
-        time.sleep(1.0)
-        self.backend.stand_mode()
-        self._mode = "stand"
-        end_t = time.time() + self.bootstrap_hold_sec
-        while time.time() < end_t:
-            self.backend.zero_velocity()
-            time.sleep(0.1)
-
-    def ensure_started(self) -> None:
-        if not self._policy_started:
-            self.backend.start_policy()
-            self._policy_started = True
-            time.sleep(0.5)
-
-    def ensure_walk(self) -> None:
-        self.ensure_started()
-        if self._mode != "walk":
-            self.backend.walk_mode()
-            self._mode = "walk"
-            time.sleep(0.15)
-
-    def ensure_stand(self) -> None:
-        self.ensure_started()
-        if self._mode != "stand":
-            self.backend.stand_mode()
-            self._mode = "stand"
-            time.sleep(0.15)
-
-    def hold_stand(self, duration: float | None = None) -> None:
-        self.ensure_stand()
-        hold = self.settle_sec if duration is None else max(0.0, duration)
-        end_t = time.time() + hold
-        while time.time() < end_t:
-            self.backend.zero_velocity()
-            time.sleep(0.1)
-
-    def _stream_velocity(self, vx: float, vy: float, wz: float, duration: float) -> None:
-        self.ensure_walk()
-        dt = 1.0 / max(1e-6, self.publish_hz)
-        end_t = time.time() + max(0.0, duration)
-        while time.time() < end_t:
-            self.backend.send_velocity(vx, vy, wz)
-            time.sleep(dt)
-        self.backend.zero_velocity()
-        self.hold_stand(self.settle_sec)
 
     def run_actions(self, actions: Iterable[MidLevelAction]) -> None:
         for action in actions:
@@ -415,28 +389,26 @@ class ActionExecutor:
 
     def run_action(self, action: MidLevelAction) -> None:
         print(f"[exec] {action}")
-
         if action.action == ActionType.STOP:
             self.backend.zero_velocity()
-            self.hold_stand(self.settle_sec)
+            self.backend.stand_mode()
             return
 
-        if action.action in {
-            ActionType.PREGRASP,
-            ActionType.CLOSE_GRIPPER,
-            ActionType.LIFT,
-            ActionType.OPEN_GRIPPER,
-            ActionType.DONE,
-        }:
+        if action.action in {ActionType.PREGRASP, ActionType.CLOSE_GRIPPER, ActionType.LIFT, ActionType.OPEN_GRIPPER, ActionType.DONE}:
             self.backend.execute_manip_action(action)
-            self.hold_stand(0.6)
             return
+
+        self.backend.start_policy()
+        self.backend.walk_mode()
 
         if action.action in {ActionType.MOVE_FORWARD, ActionType.MOVE_BACKWARD}:
             distance = max(0.0, action.value)
             sign = 1.0 if action.action == ActionType.MOVE_FORWARD else -1.0
             duration = distance / max(1e-6, self.linear_speed_mps)
-            self._stream_velocity(sign * self.linear_speed_mps, 0.0, 0.0, duration)
+            self.backend.send_velocity(sign * self.linear_speed_mps, 0.0, 0.0)
+            time.sleep(duration)
+            self.backend.zero_velocity()
+            time.sleep(self.settle_sec)
             return
 
         if action.action in {ActionType.TURN_LEFT, ActionType.TURN_RIGHT}:
@@ -445,7 +417,10 @@ class ActionExecutor:
             wz_degps = sign * self.angular_speed_degps
             wz_radps = math.radians(wz_degps)
             duration = degrees / max(1e-6, self.angular_speed_degps)
-            self._stream_velocity(0.0, 0.0, wz_radps, duration)
+            self.backend.send_velocity(0.0, 0.0, wz_radps)
+            time.sleep(duration)
+            self.backend.zero_velocity()
+            time.sleep(self.settle_sec)
             return
 
         raise ValueError(f"Unsupported action: {action.action}")
@@ -457,9 +432,9 @@ class ActionExecutor:
 
 DEMO_SEQUENCE = [
     MidLevelAction(ActionType.TURN_LEFT, value=15.0, unit="deg", raw_text="turn left 15 degrees"),
-    MidLevelAction(ActionType.MOVE_FORWARD, value=2.0, unit="m", raw_text="move forward 2 meters"),
+    MidLevelAction(ActionType.MOVE_FORWARD, value=5, unit="m", raw_text="move forward 5 meters"),
     MidLevelAction(ActionType.TURN_RIGHT, value=15.0, unit="deg", raw_text="turn right 15 degrees"),
-    MidLevelAction(ActionType.MOVE_FORWARD, value=0.6, unit="m", raw_text="move forward 0.6 meters"),
+    MidLevelAction(ActionType.MOVE_FORWARD, value=0.5, unit="m", raw_text="move forward 0.5 meters"),
     MidLevelAction(ActionType.STOP, raw_text="stop"),
 ]
 
@@ -490,25 +465,13 @@ def main() -> int:
     parser.add_argument("--scenario", type=Path, default=None, help="JSONL target-observation scenario for FSM testing")
     parser.add_argument("--cmd-vel-topic", type=str, default="/cmd_vel")
     parser.add_argument("--state-topic", type=str, default="/holosoma/state_input")
-    parser.add_argument("--linear-speed", type=float, default=0.45, help="Execution speed in m/s for distance actions")
-    parser.add_argument("--angular-speed-degps", type=float, default=60.0, help="Execution angular speed in deg/s")
-    parser.add_argument("--publish-hz", type=float, default=10.0, help="How often to republish cmd_vel during motion")
-    parser.add_argument("--settle-sec", type=float, default=0.4, help="Stand-and-zero hold after each action")
-    parser.add_argument("--bootstrap-stand", action="store_true", help="Run init->start->stand at startup (recommended for sim)")
+    parser.add_argument("--linear-speed", type=float, default=0.25, help="Execution speed in m/s for distance actions")
+    parser.add_argument("--angular-speed-degps", type=float, default=35.0, help="Execution angular speed in deg/s")
     args = parser.parse_args()
 
     backend = build_backend(args)
-    executor = ActionExecutor(
-        backend,
-        linear_speed_mps=args.linear_speed,
-        angular_speed_degps=args.angular_speed_degps,
-        settle_sec=args.settle_sec,
-        publish_hz=args.publish_hz,
-    )
+    executor = ActionExecutor(backend, linear_speed_mps=args.linear_speed, angular_speed_degps=args.angular_speed_degps)
     text_parser = NavilaTextParser()
-
-    if args.bootstrap_stand and not args.dry_run:
-        executor.bootstrap_to_stand()
 
     if args.demo_sequence:
         executor.run_actions(DEMO_SEQUENCE)
