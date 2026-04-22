@@ -106,7 +106,7 @@ python3 navila_holosoma_bridge.py --demo-sequence --bootstrap-stand
 
 Fine-tune execution timing:
 ```bash
-python3 navila_holosoma_bridge.py --scenario demo_target_scenario.jsonl --settle-sec 0.2 --publish-hz 20.0
+python3 navila_holosoma_bridge.py --scenario demo_target_scenario.jsonl --bootstrap-stand --skip-init
 ```
 
 **Note:** G1 can handle faster speeds in real sim, but start conservative for safety.

@@ -158,28 +158,28 @@ class SimpleTargetFSM:
 
         if self.state == TaskState.SEARCH:
             if not obs.found:
-                return [MidLevelAction(ActionType.TURN_LEFT, value=12.0, unit="deg", raw_text="search left")]
+                return [MidLevelAction(ActionType.TURN_LEFT, value=18.0, unit="deg", raw_text="search left")]
             self.state = TaskState.ALIGN
 
         if self.state == TaskState.ALIGN:
             if not obs.found:
                 self.state = TaskState.SEARCH
-                return [MidLevelAction(ActionType.TURN_LEFT, value=12.0, unit="deg")]
+                return [MidLevelAction(ActionType.TURN_LEFT, value=18.0, unit="deg")]
             if abs(obs.x_error) > self.align_thresh:
                 if obs.x_error < 0:
-                    return [MidLevelAction(ActionType.TURN_LEFT, value=min(18.0, 60.0 * abs(obs.x_error)), unit="deg")]
-                return [MidLevelAction(ActionType.TURN_RIGHT, value=min(18.0, 60.0 * abs(obs.x_error)), unit="deg")]
+                    return [MidLevelAction(ActionType.TURN_LEFT, value=min(30.0, 60.0 * abs(obs.x_error)), unit="deg")]
+                return [MidLevelAction(ActionType.TURN_RIGHT, value=min(30.0, 60.0 * abs(obs.x_error)), unit="deg")]
             self.state = TaskState.APPROACH
 
         if self.state == TaskState.APPROACH:
             if not obs.found:
                 self.state = TaskState.SEARCH
-                return [MidLevelAction(ActionType.STOP), MidLevelAction(ActionType.TURN_LEFT, value=12.0, unit="deg")]
+                return [MidLevelAction(ActionType.STOP), MidLevelAction(ActionType.TURN_LEFT, value=18.0, unit="deg")]
             if abs(obs.x_error) > self.align_thresh:
                 self.state = TaskState.ALIGN
                 return self.step(obs)
             if obs.area_ratio < self.reach_area_ratio:
-                return [MidLevelAction(ActionType.MOVE_FORWARD, value=0.40, unit="m")]
+                return [MidLevelAction(ActionType.MOVE_FORWARD, value=0.60, unit="m")]
             self.state = TaskState.REACHED
 
         if self.state == TaskState.REACHED:
@@ -456,10 +456,10 @@ class ActionExecutor:
 # -----------------------------
 
 DEMO_SEQUENCE = [
-    MidLevelAction(ActionType.TURN_LEFT, value=15.0, unit="deg", raw_text="turn left 15 degrees"),
-    MidLevelAction(ActionType.MOVE_FORWARD, value=2.0, unit="m", raw_text="move forward 2 meters"),
-    MidLevelAction(ActionType.TURN_RIGHT, value=15.0, unit="deg", raw_text="turn right 15 degrees"),
-    MidLevelAction(ActionType.MOVE_FORWARD, value=0.6, unit="m", raw_text="move forward 0.6 meters"),
+    MidLevelAction(ActionType.TURN_LEFT, value=30.0, unit="deg", raw_text="turn left 30 degrees"),
+    MidLevelAction(ActionType.MOVE_FORWARD, value=3.0, unit="m", raw_text="move forward 3 meters"),
+    MidLevelAction(ActionType.TURN_RIGHT, value=30.0, unit="deg", raw_text="turn right 30 degrees"),
+    MidLevelAction(ActionType.MOVE_FORWARD, value=1.0, unit="m", raw_text="move forward 1.0 meters"),
     MidLevelAction(ActionType.STOP, raw_text="stop"),
 ]
 
@@ -494,7 +494,8 @@ def main() -> int:
     parser.add_argument("--angular-speed-degps", type=float, default=60.0, help="Execution angular speed in deg/s")
     parser.add_argument("--publish-hz", type=float, default=10.0, help="How often to republish cmd_vel during motion")
     parser.add_argument("--settle-sec", type=float, default=0.4, help="Stand-and-zero hold after each action")
-    parser.add_argument("--bootstrap-stand", action="store_true", help="Run init->start->stand at startup (recommended for sim)")
+    parser.add_argument("--bootstrap-stand", action="store_true", help="Run init->start->stand at startup (recommended for first-time sim setup)")
+    parser.add_argument("--skip-init", action="store_true", help="Skip initialization if robot is already prepared (for subsequent runs)")
     args = parser.parse_args()
 
     backend = build_backend(args)
@@ -507,7 +508,7 @@ def main() -> int:
     )
     text_parser = NavilaTextParser()
 
-    if args.bootstrap_stand and not args.dry_run:
+    if args.bootstrap_stand and not args.skip_init and not args.dry_run:
         executor.bootstrap_to_stand()
 
     if args.demo_sequence:
