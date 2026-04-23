@@ -336,13 +336,14 @@ def main() -> int:
             raw_output = send_request(args.host, args.port, images, instruction)
             target_side = extract_target_side(raw_output)
             final_cmd = normalize_navila_output(raw_output)
+            display_cmd = f"command: {final_cmd}"
 
             if args.raw:
                 print("[raw]", flush=True)
                 print(raw_output, flush=True)
                 if target_side is not None:
                     print(f"[target_side] {target_side}", flush=True)
-            print(final_cmd, flush=True)
+            print(display_cmd, flush=True)
 
             should_send = True
             if args.dedupe and final_cmd == last_sent_cmd:
