@@ -1,0 +1,69 @@
+{
+  "video": "test/navila_box_testset/video/right.mp4",
+  "source_fps": 29.0,
+  "sample_fps": 2.0,
+  "frame_step": 14,
+  "duration_sec": 5.413793103448276,
+  "written_frames": [
+    {
+      "file": "frame_000001_t000000000ms.jpg",
+      "source_frame_index": 0,
+      "time_sec": 0.0
+    },
+    {
+      "file": "frame_000002_t000000483ms.jpg",
+      "source_frame_index": 14,
+      "time_sec": 0.4827586206896552
+    },
+    {
+      "file": "frame_000003_t000000966ms.jpg",
+      "source_frame_index": 28,
+      "time_sec": 0.9655172413793104
+    },
+    {
+      "file": "frame_000004_t000001448ms.jpg",
+      "source_frame_index": 42,
+      "time_sec": 1.4482758620689655
+    },
+    {
+      "file": "frame_000005_t000001931ms.jpg",
+      "source_frame_index": 56,
+      "time_sec": 1.9310344827586208
+    },
+    {
+      "file": "frame_000006_t000002414ms.jpg",
+      "source_frame_index": 70,
+      "time_sec": 2.413793103448276
+    },
+    {
+      "file": "frame_000007_t000002897ms.jpg",
+      "source_frame_index": 84,
+      "time_sec": 2.896551724137931
+    },
+    {
+      "file": "frame_000008_t000003379ms.jpg",
+      "source_frame_index": 98,
+      "time_sec": 3.3793103448275863
+    },
+    {
+      "file": "frame_000009_t000003862ms.jpg",
+      "source_frame_index": 112,
+      "time_sec": 3.8620689655172415
+    },
+    {
+      "file": "frame_000010_t000004345ms.jpg",
+      "source_frame_index": 126,
+      "time_sec": 4.344827586206897
+    },
+    {
+      "file": "frame_000011_t000004828ms.jpg",
+      "source_frame_index": 140,
+      "time_sec": 4.827586206896552
+    },
+    {
+      "file": "frame_000012_t000005310ms.jpg",
+      "source_frame_index": 154,
+      "time_sec": 5.310344827586207
+    }
+  ]
+}

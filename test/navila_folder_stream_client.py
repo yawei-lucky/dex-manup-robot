@@ -339,10 +339,8 @@ def main() -> int:
             display_cmd = f"command: {final_cmd}"
 
             if args.raw:
-                print("[raw]", flush=True)
+                print("[raw]:", flush=True)
                 print(raw_output, flush=True)
-                if target_side is not None:
-                    print(f"[target_side] {target_side}", flush=True)
             print(display_cmd, flush=True)
 
             should_send = True
