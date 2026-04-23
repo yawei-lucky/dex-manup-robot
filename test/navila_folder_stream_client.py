@@ -159,8 +159,10 @@ def build_instruction(user_task: str) -> str:
 
 def load_instruction(task: Optional[str], prompt_json: Optional[Path]) -> str:
     if prompt_json is not None:
-        if not prompt_json.exists() or not prompt_json.is_file():
+        if not prompt_json.exists():
             raise SystemExit(f"Invalid prompt JSON file: {prompt_json}")
+        elif not prompt_json.is_file():
+            raise SystemExit(f"Prompt JSON file is not a regular file: {prompt_json}")
         try:
             data = json.loads(prompt_json.read_text(encoding="utf-8"))
         except Exception as exc:

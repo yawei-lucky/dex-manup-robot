@@ -61,6 +61,15 @@ This script creates a synthetic test dataset for:
 - `turn_right`
 - `stop`
 
+### Box-oriented synthetic dataset
+- `test/navila_box_testset/`
+
+This folder contains the newer box-oriented synthetic sequences and prompt files:
+- `test/navila_box_testset/forward_box/`
+- `test/navila_box_testset/turn_left_box/`
+- `test/navila_box_testset/navila_square_box_prompt.json`
+- `test/navila_box_testset/navila_square_box_prompt.txt`
+
 ---
 
 ## 3. Expected overall flow
@@ -159,8 +168,8 @@ The folder-stream client now supports JSON prompt input:
 python test/navila_folder_stream_client.py \
   --host localhost \
   --port 54321 \
-  --prompt-json navila_square_box_prompt.json \
-  --images-dir test/mock_navila_stream_dataset/turn_left \
+  --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
+  --images-dir test/navila_box_testset/turn_left_box \
   --pattern "*.jpg" \
   --interval-sec 1.0 \
   --raw
@@ -193,8 +202,8 @@ One-shot folder test with JSON prompt:
 python test/navila_folder_stream_client.py \
   --host localhost \
   --port 54321 \
-  --prompt-json navila_square_box_prompt.json \
-  --images-dir test/mock_navila_stream_dataset/turn_left \
+  --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
+  --images-dir test/navila_box_testset/turn_left_box \
   --once \
   --raw
 ```
@@ -213,8 +222,8 @@ Example with JSON prompt input:
 python test/navila_folder_stream_client.py \
   --host localhost \
   --port 54321 \
-  --prompt-json navila_square_box_prompt.json \
-  --images-dir test/mock_navila_stream_dataset/turn_left \
+  --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
+  --images-dir test/navila_box_testset/turn_left_box \
   --interval-sec 1.0 \
   --dedupe \
   --bridge-cmd "python test/navila_holosoma_bridge_v0.py --stdin --dry-run"
