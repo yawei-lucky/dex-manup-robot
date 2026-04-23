@@ -17,19 +17,6 @@ from typing import List, Optional
 from PIL import Image
 
 
-ALLOWED_PATTERNS = [
-    re.compile(r"^\s*stop\s*$", re.IGNORECASE),
-    re.compile(
-        r"^\s*(move|moving)\s+forward\s+([-+]?\d+(?:\.\d+)?)\s*(cm|centimeter|centimeters|m|meter|meters)\s*$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"^\s*turn\s+(left|right)\s+(?:by\s+)?([-+]?\d+(?:\.\d+)?)\s*(deg|degree|degrees)\s*$",
-        re.IGNORECASE,
-    ),
-]
-
-
 class BridgeWriter:
     def __init__(self, bridge_cmd: Optional[str]) -> None:
         self.bridge_cmd = bridge_cmd
@@ -114,41 +101,49 @@ def send_request(host: str, port: int, images: List[Image.Image], instruction: s
     return json.loads(response_data.decode("utf-8"))
 
 
-def normalize_navila_output(text: str) -> str:
-    line = text.strip().splitlines()[0].strip()
+def _cleanup_text(text: str) -> str:
+    line = text.strip().splitlines()[0].strip().lower()
+    line = line.replace("\u00a0", " ")
     line = re.sub(r"[。．]+$", "", line)
     line = re.sub(r"\s+", " ", line)
+    return line
 
-    for pat in ALLOWED_PATTERNS:
-        m = pat.match(line)
-        if not m:
-            continue
 
-        if "stop" in line.lower():
+def normalize_navila_output(text: str) -> str:
+    line = _cleanup_text(text)
+
+    stop_match = re.search(r"\bstop\b", line, re.IGNORECASE)
+    turn_match = re.search(
+        r"\bturn\s+(left|right)\s+(?:by\s+)?([-+]?\d+(?:\.\d+)?)\s*(deg|degree|degrees)\b",
+        line,
+        re.IGNORECASE,
+    )
+    move_match = re.search(
+        r"\b(?:move|moving)\s+forward\s+([-+]?\d+(?:\.\d+)?)\s*(cm|centimeter|centimeters|m|meter|meters)\b",
+        line,
+        re.IGNORECASE,
+    )
+
+    if turn_match:
+        direction = turn_match.group(1).lower()
+        value = float(turn_match.group(2))
+        value = max(1.0, min(180.0, value))
+        value_str = f"{int(value)}" if value.is_integer() else f"{value:.1f}"
+        return f"turn {direction} {value_str} degrees"
+
+    if move_match:
+        value = float(move_match.group(1))
+        unit = move_match.group(2).lower()
+        if value <= 0:
             return "stop"
-
-        if "turn" in line.lower():
-            direction = m.group(1).lower()
-            value = float(m.group(2))
-            value = max(1.0, min(180.0, value))
+        if unit in {"cm", "centimeter", "centimeters"}:
             value_str = f"{int(value)}" if value.is_integer() else f"{value:.1f}"
-            return f"turn {direction} {value_str} degrees"
+            return f"move forward {value_str} centimeters"
+        value_str = f"{int(value)}" if value.is_integer() else f"{value:.2f}".rstrip("0").rstrip(".")
+        return f"move forward {value_str} meters"
 
-        if "move" in line.lower():
-            value = float(m.group(2))
-            unit = m.group(3).lower()
-
-            if unit in {"cm", "centimeter", "centimeters"}:
-                if value <= 0:
-                    return "stop"
-                value_str = f"{int(value)}" if value.is_integer() else f"{value:.1f}"
-                return f"move forward {value_str} centimeters"
-
-            if unit in {"m", "meter", "meters"}:
-                if value <= 0:
-                    return "stop"
-                value_str = f"{int(value)}" if value.is_integer() else f"{value:.2f}".rstrip("0").rstrip(".")
-                return f"move forward {value_str} meters"
+    if stop_match:
+        return "stop"
 
     return "stop"
 
