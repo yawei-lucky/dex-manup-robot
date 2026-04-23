@@ -157,6 +157,26 @@ def build_instruction(user_task: str) -> str:
     )
 
 
+def load_instruction(task: Optional[str], prompt_json: Optional[Path]) -> str:
+    if prompt_json is not None:
+        if not prompt_json.exists() or not prompt_json.is_file():
+            raise SystemExit(f"Invalid prompt JSON file: {prompt_json}")
+        try:
+            data = json.loads(prompt_json.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SystemExit(f"Failed to parse prompt JSON: {prompt_json}\n{exc}") from exc
+        if not isinstance(data, dict):
+            raise SystemExit("Prompt JSON must be an object.")
+        prompt = data.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise SystemExit("Prompt JSON must contain a non-empty string field named 'prompt'.")
+        return prompt
+
+    if task is None or not task.strip():
+        raise SystemExit("Provide either --task or --prompt-json.")
+    return build_instruction(task)
+
+
 def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int) -> List[Path]:
     paths = [p for p in images_dir.glob(pattern) if p.is_file()]
     paths.sort(key=lambda p: (p.stat().st_mtime, p.name))
@@ -167,7 +187,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="NaVILA folder stream client")
     parser.add_argument("--host", type=str, default="localhost")
     parser.add_argument("--port", type=int, default=54321)
-    parser.add_argument("--task", type=str, required=True)
+    parser.add_argument("--task", type=str, default=None)
+    parser.add_argument("--prompt-json", type=Path, default=None, help="Path to a JSON prompt file containing at least a 'prompt' field")
     parser.add_argument("--images-dir", type=Path, required=True)
     parser.add_argument("--pattern", type=str, default="*.jpg")
     parser.add_argument("--keep-last", type=int, default=8, help="How many latest files to consider before pad/sample")
@@ -182,7 +203,7 @@ def main() -> int:
     if not args.images_dir.exists() or not args.images_dir.is_dir():
         raise SystemExit(f"Invalid images directory: {args.images_dir}")
 
-    instruction = build_instruction(args.task)
+    instruction = load_instruction(args.task, args.prompt_json)
     bridge = BridgeWriter(args.bridge_cmd)
     bridge.start()
 
