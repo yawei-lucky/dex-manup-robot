@@ -7,6 +7,7 @@ import io
 import json
 import re
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -204,6 +205,38 @@ def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int, sort_
     return list_ordered_image_paths(images_dir, pattern, sort_by)[-keep_last:]
 
 
+def log_and_save_window(
+    image_paths: List[Path],
+    save_window_dir: Optional[Path],
+    save_window_manifest: Optional[Path],
+    request_index: int,
+) -> None:
+    print("[window] frames sent to server in order:", flush=True)
+    for idx, path in enumerate(image_paths, start=1):
+        print(f"  {idx:02d}. {path}", flush=True)
+
+    if save_window_dir is not None:
+        window_dir = save_window_dir / f"window_{request_index:04d}"
+        window_dir.mkdir(parents=True, exist_ok=True)
+        for idx, path in enumerate(image_paths, start=1):
+            dst = window_dir / f"{idx:02d}_{path.name}"
+            shutil.copy2(path, dst)
+        meta = {
+            "request_index": request_index,
+            "ordered_paths": [str(p) for p in image_paths],
+        }
+        (window_dir / "window.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    if save_window_manifest is not None:
+        save_window_manifest.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "request_index": request_index,
+            "ordered_paths": [str(p) for p in image_paths],
+        }
+        with save_window_manifest.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="NaVILA folder stream client")
     parser.add_argument("--host", type=str, default="localhost")
@@ -222,6 +255,8 @@ def main() -> int:
     parser.add_argument("--dedupe", action="store_true", help="Do not resend the same normalized command twice in a row")
     parser.add_argument("--min-images", type=int, default=1)
     parser.add_argument("--require-full-window", action="store_true", help="Wait until the buffered window contains --keep-last real images before sending to the server")
+    parser.add_argument("--save-window-dir", type=Path, default=None, help="Optional directory to save each 8-frame window sent to the server")
+    parser.add_argument("--save-window-manifest", type=Path, default=None, help="Optional JSONL file that records the ordered image paths for every request")
     args = parser.parse_args()
 
     if not args.images_dir.exists() or not args.images_dir.is_dir():
@@ -237,6 +272,7 @@ def main() -> int:
     last_signature: Optional[str] = None
     seen_paths: set[str] = set()
     sequential_buffer: Deque[Path] = deque(maxlen=args.keep_last)
+    request_index = 0
 
     try:
         while True:
@@ -269,6 +305,8 @@ def main() -> int:
                 continue
 
             last_signature = signature
+            request_index += 1
+            log_and_save_window(image_paths, args.save_window_dir, args.save_window_manifest, request_index)
             images = load_images(image_paths)
             images = sample_to_8_frames(images)
             raw_output = send_request(args.host, args.port, images, instruction)
