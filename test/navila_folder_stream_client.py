@@ -179,9 +179,23 @@ def load_instruction(task: Optional[str], prompt_json: Optional[Path]) -> str:
     return build_instruction(task)
 
 
-def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int) -> List[Path]:
+def _natural_key(path: Path):
+    parts = re.split(r"(\d+)", path.name)
+    key = []
+    for part in parts:
+        if part.isdigit():
+            key.append(int(part))
+        else:
+            key.append(part.lower())
+    return key
+
+
+def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int, sort_by: str) -> List[Path]:
     paths = [p for p in images_dir.glob(pattern) if p.is_file()]
-    paths.sort(key=lambda p: (p.stat().st_mtime, p.name))
+    if sort_by == "mtime":
+        paths.sort(key=lambda p: (p.stat().st_mtime_ns, p.name))
+    else:
+        paths.sort(key=_natural_key)
     return paths[-keep_last:]
 
 
@@ -194,6 +208,7 @@ def main() -> int:
     parser.add_argument("--images-dir", type=Path, required=True)
     parser.add_argument("--pattern", type=str, default="*.jpg")
     parser.add_argument("--keep-last", type=int, default=8, help="How many latest files to consider before pad/sample")
+    parser.add_argument("--sort-by", choices=["name", "mtime"], default="name", help="How to order frames before taking the latest window")
     parser.add_argument("--interval-sec", type=float, default=1.0)
     parser.add_argument("--raw", action="store_true")
     parser.add_argument("--once", action="store_true", help="Run one inference only")
@@ -214,7 +229,7 @@ def main() -> int:
 
     try:
         while True:
-            image_paths = get_latest_image_paths(args.images_dir, args.pattern, args.keep_last)
+            image_paths = get_latest_image_paths(args.images_dir, args.pattern, args.keep_last, args.sort_by)
             if len(image_paths) < args.min_images:
                 print(f"[wait] found {len(image_paths)} images, need at least {args.min_images}", flush=True)
                 if args.once:
@@ -222,7 +237,10 @@ def main() -> int:
                 time.sleep(args.interval_sec)
                 continue
 
-            signature = "|".join(f"{p.name}:{int(p.stat().st_mtime_ns)}" for p in image_paths)
+            if args.sort_by == "mtime":
+                signature = "|".join(f"{p.name}:{int(p.stat().st_mtime_ns)}" for p in image_paths)
+            else:
+                signature = "|".join(p.name for p in image_paths)
             if signature == last_signature and not args.once:
                 time.sleep(args.interval_sec)
                 continue
