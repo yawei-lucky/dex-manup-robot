@@ -104,25 +104,49 @@ def send_request(host: str, port: int, images: List[Image.Image], instruction: s
 
 
 def _cleanup_text(text: str) -> str:
-    line = text.strip().splitlines()[0].strip().lower()
-    line = line.replace("\u00a0", " ")
-    line = re.sub(r"[。．]+$", "", line)
-    line = re.sub(r"\s+", " ", line)
-    return line
+    text = text.strip().lower()
+    text = text.replace("\u00a0", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[。．]+", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return text
+
+
+def extract_target_side(text: str) -> Optional[str]:
+    cleaned = _cleanup_text(text)
+
+    m = re.search(
+        r"target_side\s*:\s*(left|right|center|not visible)",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).lower()
+
+    if "not visible" in cleaned:
+        return "not visible"
+    if re.search(r"\bon the left\b|\bleft side\b", cleaned):
+        return "left"
+    if re.search(r"\bon the right\b|\bright side\b", cleaned):
+        return "right"
+    if re.search(r"\bcenter\b|\bcentre\b|\bcentered\b|\bcentred\b", cleaned):
+        return "center"
+
+    return None
 
 
 def normalize_navila_output(text: str) -> str:
-    line = _cleanup_text(text)
+    cleaned = _cleanup_text(text)
 
-    stop_match = re.search(r"\bstop\b", line, re.IGNORECASE)
+    stop_match = re.search(r"\bstop\b", cleaned, re.IGNORECASE)
     turn_match = re.search(
         r"\bturn\s+(left|right)\s+(?:by\s+)?([-+]?\d+(?:\.\d+)?)\s*(deg|degree|degrees)\b",
-        line,
+        cleaned,
         re.IGNORECASE,
     )
     move_match = re.search(
         r"\b(?:move|moving)\s+forward\s+([-+]?\d+(?:\.\d+)?)\s*(cm|centimeter|centimeters|m|meter|meters)\b",
-        line,
+        cleaned,
         re.IGNORECASE,
     )
 
@@ -310,10 +334,14 @@ def main() -> int:
             images = load_images(image_paths)
             images = sample_to_8_frames(images)
             raw_output = send_request(args.host, args.port, images, instruction)
+            target_side = extract_target_side(raw_output)
             final_cmd = normalize_navila_output(raw_output)
 
             if args.raw:
-                print(f"[raw] {raw_output}", flush=True)
+                print("[raw]", flush=True)
+                print(raw_output, flush=True)
+                if target_side is not None:
+                    print(f"[target_side] {target_side}", flush=True)
             print(final_cmd, flush=True)
 
             should_send = True
