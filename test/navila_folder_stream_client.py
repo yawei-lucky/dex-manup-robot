@@ -11,8 +11,9 @@ import socket
 import subprocess
 import sys
 import time
+from collections import deque
 from pathlib import Path
-from typing import List, Optional
+from typing import Deque, List, Optional
 
 from PIL import Image
 
@@ -190,13 +191,17 @@ def _natural_key(path: Path):
     return key
 
 
-def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int, sort_by: str) -> List[Path]:
+def list_ordered_image_paths(images_dir: Path, pattern: str, sort_by: str) -> List[Path]:
     paths = [p for p in images_dir.glob(pattern) if p.is_file()]
     if sort_by == "mtime":
         paths.sort(key=lambda p: (p.stat().st_mtime_ns, p.name))
     else:
         paths.sort(key=_natural_key)
-    return paths[-keep_last:]
+    return paths
+
+
+def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int, sort_by: str) -> List[Path]:
+    return list_ordered_image_paths(images_dir, pattern, sort_by)[-keep_last:]
 
 
 def main() -> int:
@@ -209,12 +214,14 @@ def main() -> int:
     parser.add_argument("--pattern", type=str, default="*.jpg")
     parser.add_argument("--keep-last", type=int, default=8, help="How many latest files to consider before pad/sample")
     parser.add_argument("--sort-by", choices=["name", "mtime"], default="name", help="How to order frames before taking the latest window")
+    parser.add_argument("--ingest-mode", choices=["window_scan", "sequential"], default="window_scan", help="window_scan repeatedly inspects the latest window; sequential buffers new images one by one in order")
     parser.add_argument("--interval-sec", type=float, default=1.0)
     parser.add_argument("--raw", action="store_true")
     parser.add_argument("--once", action="store_true", help="Run one inference only")
     parser.add_argument("--bridge-cmd", type=str, default=None, help="Example: 'python test/navila_holosoma_bridge_v0.py --stdin --dry-run'")
     parser.add_argument("--dedupe", action="store_true", help="Do not resend the same normalized command twice in a row")
     parser.add_argument("--min-images", type=int, default=1)
+    parser.add_argument("--require-full-window", action="store_true", help="Wait until the buffered window contains --keep-last real images before sending to the server")
     args = parser.parse_args()
 
     if not args.images_dir.exists() or not args.images_dir.is_dir():
@@ -224,28 +231,44 @@ def main() -> int:
     bridge = BridgeWriter(args.bridge_cmd)
     bridge.start()
 
+    effective_min_images = args.keep_last if args.require_full_window else args.min_images
+
     last_sent_cmd: Optional[str] = None
     last_signature: Optional[str] = None
+    seen_paths: set[str] = set()
+    sequential_buffer: Deque[Path] = deque(maxlen=args.keep_last)
 
     try:
         while True:
-            image_paths = get_latest_image_paths(args.images_dir, args.pattern, args.keep_last, args.sort_by)
-            if len(image_paths) < args.min_images:
-                print(f"[wait] found {len(image_paths)} images, need at least {args.min_images}", flush=True)
+            if args.ingest_mode == "sequential":
+                ordered_paths = list_ordered_image_paths(args.images_dir, args.pattern, args.sort_by)
+                new_paths = [p for p in ordered_paths if str(p.resolve()) not in seen_paths]
+                if not new_paths:
+                    time.sleep(args.interval_sec)
+                    continue
+                for path in new_paths:
+                    seen_paths.add(str(path.resolve()))
+                    sequential_buffer.append(path)
+                image_paths = list(sequential_buffer)
+                signature = "|".join(p.name for p in image_paths)
+            else:
+                image_paths = get_latest_image_paths(args.images_dir, args.pattern, args.keep_last, args.sort_by)
+                if args.sort_by == "mtime":
+                    signature = "|".join(f"{p.name}:{int(p.stat().st_mtime_ns)}" for p in image_paths)
+                else:
+                    signature = "|".join(p.name for p in image_paths)
+                if signature == last_signature and not args.once:
+                    time.sleep(args.interval_sec)
+                    continue
+
+            if len(image_paths) < effective_min_images:
+                print(f"[wait] found {len(image_paths)} images, need at least {effective_min_images}", flush=True)
                 if args.once:
                     return 1
                 time.sleep(args.interval_sec)
                 continue
 
-            if args.sort_by == "mtime":
-                signature = "|".join(f"{p.name}:{int(p.stat().st_mtime_ns)}" for p in image_paths)
-            else:
-                signature = "|".join(p.name for p in image_paths)
-            if signature == last_signature and not args.once:
-                time.sleep(args.interval_sec)
-                continue
             last_signature = signature
-
             images = load_images(image_paths)
             images = sample_to_8_frames(images)
             raw_output = send_request(args.host, args.port, images, instruction)
