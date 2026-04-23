@@ -17,7 +17,7 @@ Use NaVILA as a **text-action generator**.
 
 Input:
 - recent image history
-- task instruction text
+- task instruction text or JSON prompt file
 
 Output:
 - `turn left 15 degrees`
@@ -50,6 +50,7 @@ This script:
 - sends them to NaVILA VLM server
 - prints normalized textual commands continuously
 - can optionally keep a bridge process alive and write commands into its stdin
+- supports either direct `--task` input or JSON prompt input through `--prompt-json`
 
 ### Mock dataset generator
 - `test/generate_mock_navila_stream_dataset.py`
@@ -137,7 +138,7 @@ Meaning:
 
 ## 6. Run the folder-stream client
 
-Example:
+### A. Use direct task text
 
 ```bash
 python test/navila_folder_stream_client.py \
@@ -150,17 +151,49 @@ python test/navila_folder_stream_client.py \
   --raw
 ```
 
+### B. Use a JSON prompt file
+
+The folder-stream client now supports JSON prompt input:
+
+```bash
+python test/navila_folder_stream_client.py \
+  --host localhost \
+  --port 54321 \
+  --prompt-json navila_square_box_prompt.json \
+  --images-dir test/mock_navila_stream_dataset/turn_left \
+  --pattern "*.jpg" \
+  --interval-sec 1.0 \
+  --raw
+```
+
+Expected JSON format:
+
+```json
+{
+  "task": "find and approach the square box",
+  "target_object": "square box",
+  "prompt": "Task: find and approach the square box.\n\nLook at the image history and decide the single best next navigation action to find and approach the square box.\nIf the square box is not visible yet, choose a turn or move that helps discover it.\nIf the square box is visible but off-center, choose a turn that better aligns the robot with it.\nIf the square box is centered and still far away, move forward.\nIf the square box is already reached, output stop.\n\nOutput exactly one next action for navigation.\nThe action should be one of:\n- turn left by a specific degree\n- turn right by a specific degree\n- move forward a certain distance\n- stop\n"
+}
+```
+
+Notes:
+- the current script reads the `prompt` field and sends it to the VLM server
+- `task` and `target_object` are kept in the JSON for consistent configuration management
+- if `--prompt-json` is given, it takes priority over `--task`
+
 Useful options:
 - `--once`: run only one inference and exit
 - `--dedupe`: do not resend the same normalized command twice in a row
 - `--min-images N`: wait until at least `N` images exist in the folder
 - `--keep-last N`: use the latest `N` files before pad/sample to 8 frames
 
-One-shot folder test:
+One-shot folder test with JSON prompt:
 
 ```bash
 python test/navila_folder_stream_client.py \
-  --task "Go to the doorway." \
+  --host localhost \
+  --port 54321 \
+  --prompt-json navila_square_box_prompt.json \
   --images-dir test/mock_navila_stream_dataset/turn_left \
   --once \
   --raw
@@ -174,11 +207,13 @@ The existing bridge accepts one textual command per line from stdin.
 
 The folder-stream client can launch the bridge once and keep writing commands into it.
 
-Example:
+Example with JSON prompt input:
 
 ```bash
 python test/navila_folder_stream_client.py \
-  --task "Go to the doorway." \
+  --host localhost \
+  --port 54321 \
+  --prompt-json navila_square_box_prompt.json \
   --images-dir test/mock_navila_stream_dataset/turn_left \
   --interval-sec 1.0 \
   --dedupe \
@@ -331,6 +366,7 @@ For the current stage, the top-layer integration is already practical:
 - NaVILA VLM server generates text commands
 - `test/navila_min_client.py` supports one-shot offline testing
 - `test/navila_folder_stream_client.py` supports folder-based continuous streaming
+- the folder-stream client supports direct task text and JSON prompt files
 - the existing bridge can stay alive and continuously receive commands through stdin
 
 So the remaining real-world step later is only to replace synthetic or saved images with your actual image source.
