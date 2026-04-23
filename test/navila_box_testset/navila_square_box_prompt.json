@@ -1,0 +1,5 @@
+{
+  "task": "find and approach the square box",
+  "target_object": "square box",
+  "prompt": "Task: find and approach the square box.\n\nLook at the image history and decide the single best next navigation action to find and approach the square box.\nIf the square box is not visible yet, choose a turn or move that helps discover it.\nIf the square box is visible but off-center, choose a turn that better aligns the robot with it.\nIf the square box is centered and still far away, move forward.\nIf the square box is already reached, output stop.\n\nOutput exactly one next action for navigation.\nThe action should be one of:\n- turn left by a specific degree\n- turn right by a specific degree\n- move forward a certain distance\n- stop\n"
+}
