@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import time
 from pathlib import Path
 
@@ -21,17 +20,24 @@ def save_frame(frame_bgr, out_path: Path, jpeg_quality: int) -> None:
         raise RuntimeError(f"Failed to save frame: {out_path}")
 
 
+def resolve_output_dir(base_output_dir: Path, video_path: Path, use_video_stem_dir: bool) -> Path:
+    if use_video_stem_dir:
+        return base_output_dir / video_path.stem
+    return base_output_dir
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Extract a video into time-ordered JPG frames for navila_folder_stream_client")
     parser.add_argument("--video", type=Path, required=True, help="Input video path")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Output folder for JPG frames")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Output folder for JPG frames, or a parent folder when --use-video-stem-dir is enabled")
+    parser.add_argument("--use-video-stem-dir", action="store_true", help="Create a subfolder named after the video file stem and save frames there")
     parser.add_argument("--sample-fps", type=float, default=2.0, help="Frame sampling rate from the source video")
     parser.add_argument("--jpeg-quality", type=int, default=95)
     parser.add_argument("--resize-width", type=int, default=0, help="Optional resize width; 0 keeps original size")
     parser.add_argument("--resize-height", type=int, default=0, help="Optional resize height; 0 keeps original size")
     parser.add_argument("--stream", action="store_true", help="Write frames one by one with a time delay to simulate a live image stream")
     parser.add_argument("--stream-interval-sec", type=float, default=0.5, help="Delay between written frames when --stream is used")
-    parser.add_argument("--clear-output", action="store_true", help="Remove old JPG files in the output directory before writing")
+    parser.add_argument("--clear-output", action="store_true", help="Remove old JPG files in the resolved output directory before writing")
     parser.add_argument("--prefix", type=str, default="frame")
     args = parser.parse_args()
 
@@ -40,10 +46,14 @@ def main() -> int:
     if args.sample_fps <= 0:
         raise SystemExit("--sample-fps must be > 0")
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = resolve_output_dir(args.output_dir, args.video, args.use_video_stem_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     if args.clear_output:
-        for p in args.output_dir.glob("*.jpg"):
+        for p in output_dir.glob("*.jpg"):
             p.unlink()
+        manifest_path = output_dir / "manifest.json"
+        if manifest_path.exists():
+            manifest_path.unlink()
 
     cap = cv2.VideoCapture(str(args.video))
     if not cap.isOpened():
@@ -60,6 +70,7 @@ def main() -> int:
     frame_idx = 0
     manifest = {
         "video": str(args.video),
+        "resolved_output_dir": str(output_dir),
         "source_fps": src_fps,
         "sample_fps": args.sample_fps,
         "frame_step": step,
@@ -78,7 +89,7 @@ def main() -> int:
 
             t_sec = frame_idx / src_fps
             out_name = f"{args.prefix}_{written + 1:06d}_t{int(round(t_sec * 1000)):09d}ms.jpg"
-            out_path = args.output_dir / out_name
+            out_path = output_dir / out_name
             save_frame(frame, out_path, args.jpeg_quality)
             manifest["written_frames"].append({
                 "file": out_name,
@@ -94,10 +105,10 @@ def main() -> int:
         frame_idx += 1
 
     cap.release()
-    manifest_path = args.output_dir / "manifest.json"
+    manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    print(f"Wrote {written} frames to: {args.output_dir}")
+    print(f"Wrote {written} frames to: {output_dir}")
     print(f"Manifest: {manifest_path}")
     return 0
 
