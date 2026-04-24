@@ -1,112 +1,77 @@
 # NaVILA VLM client integration guide
 
-This note only covers the **top-layer VLM connection**:
+This note only covers the current top-layer VLM integration in this repo.
 
+It documents how to:
 - run NaVILA as a VLM server
-- send image history + task text
-- receive textual navigation commands
-- optionally stream those commands into the existing bridge
+- feed image history into the current client
+- test with a fixed 8-image folder
+- test with discretized video frames
+- test with continuously appended images
+- optionally send normalized commands into the existing bridge
 
-It does **not** change the middle layer or low-level controller.
-
----
-
-## 1. Goal
-
-Use NaVILA as a **text-action generator**.
-
-Input:
-- recent image history
-- task instruction text or JSON prompt file
-
-Output:
-- `turn left 15 degrees`
-- `turn right 30 degrees`
-- `move forward 50 centimeters`
-- `stop`
-
-The returned text can be sent directly to the existing bridge script.
+It does not change the middle layer or low-level controller.
 
 ---
 
-## 2. Files
+## 1. Current entry points
 
-### Single-shot client
-- `test/navila_min_client.py`
-
-This script:
-- reads 1 to N image files
-- pads / samples them to 8 frames
-- sends them to NaVILA VLM server
-- receives raw text output
-- normalizes it into a bridge-friendly command
-
-### Folder-stream client
+### Main client
 - `test/navila_folder_stream_client.py`
 
-This script:
-- watches a folder of incoming images
-- repeatedly takes the latest frames
-- sends them to NaVILA VLM server
-- prints normalized textual commands continuously
-- can optionally keep a bridge process alive and write commands into its stdin
-- supports either direct `--task` input or JSON prompt input through `--prompt-json`
+This is the current client to use.
+It supports:
+- `--prompt-json` for JSON prompt files
+- one-shot testing with `--once`
+- continuous folder watching
+- sequential ingest for one-by-one incoming frames
+- raw VLM output printing
+- saving the exact 8-frame window sent to the server
+- optional bridge streaming through stdin
 
-### Mock dataset generator
-- `test/generate_mock_navila_stream_dataset.py`
+### Video to frame conversion
+- `test/video_to_frame_stream.py`
 
-This script creates a synthetic test dataset for:
-- `forward`
-- `turn_left`
-- `turn_right`
-- `stop`
+This script converts a video into time-ordered JPG frames.
+It can either:
+- extract all frames first for offline testing
+- or write frames one by one with delays to simulate a live image stream
 
-### Box-oriented synthetic dataset
+### Example dataset / prompt area
 - `test/navila_box_testset/`
 
-This folder contains the newer box-oriented synthetic sequences and prompt files:
-- `test/navila_box_testset/forward_box/`
-- `test/navila_box_testset/turn_left_box/`
-- `test/navila_box_testset/navila_square_box_prompt.json`
-- `test/navila_box_testset/navila_square_box_prompt.txt`
+Typical contents in this folder:
+- `test/navila_box_testset/video/` for source videos
+- `test/navila_box_testset/<video_stem>/` for extracted frames
+- `test/navila_box_testset/navila_square_box_prompt.json` or another prompt JSON
+
+`test/navila_min_client.py` is no longer the recommended path and is not covered here.
 
 ---
 
-## 3. Expected overall flow
+## 2. Overall flow
 
 ```text
-camera frames / saved images
+saved images / extracted video frames / continuously appended frames
         |
         v
-client adapter
+navila_folder_stream_client.py
         |
         v
 NaVILA VLM server
         |
         v
-text command
+normalized text command
         |
         v
-existing bridge script
-```
-
-Two practical modes are supported:
-
-### Mode A: one-shot offline test
-```text
-saved 8 images -> navila_min_client.py -> one text command
-```
-
-### Mode B: folder-based continuous stream
-```text
-image folder -> navila_folder_stream_client.py -> continuous text commands -> bridge stdin
+optional bridge stdin
 ```
 
 ---
 
-## 4. Start NaVILA VLM server
+## 3. Start NaVILA VLM server
 
-Run this inside the NaVILA-Bench / NaVILA environment:
+Run this inside the NaVILA / NaVILA-Bench environment:
 
 ```bash
 python scripts/vlm_server.py --model_path /path/to/navila-llama3-8b-8f --port 54321
@@ -114,268 +79,321 @@ python scripts/vlm_server.py --model_path /path/to/navila-llama3-8b-8f --port 54
 
 Notes:
 - replace `/path/to/navila-llama3-8b-8f` with the actual checkpoint path
-- default host is `localhost`
-- default port in both clients is also `54321`
+- the client examples below assume `localhost:54321`
 
 ---
 
-## 5. Run the minimal one-shot client
+## 4. Prompt JSON format
 
-Example:
-
-```bash
-python test/navila_min_client.py \
-  --host localhost \
-  --port 54321 \
-  --task "Go to the doorway." \
-  --images frame1.jpg frame2.jpg frame3.jpg frame4.jpg frame5.jpg frame6.jpg frame7.jpg frame8.jpg \
-  --raw
-```
-
-Example output:
-
-```text
-[raw] Turn left 15 degrees
-turn left 15 degrees
-```
-
-Meaning:
-- the first line is the raw NaVILA output
-- the second line is the normalized command for the bridge
-
----
-
-## 6. Run the folder-stream client
-
-### A. Use direct task text
-
-```bash
-python test/navila_folder_stream_client.py \
-  --host localhost \
-  --port 54321 \
-  --task "Go to the doorway." \
-  --images-dir test/mock_navila_stream_dataset/turn_left \
-  --pattern "*.jpg" \
-  --interval-sec 1.0 \
-  --raw
-```
-
-### B. Use a JSON prompt file
-
-The folder-stream client now supports JSON prompt input:
-
-```bash
-python test/navila_folder_stream_client.py \
-  --host localhost \
-  --port 54321 \
-  --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
-  --images-dir test/navila_box_testset/turn_left_box \
-  --pattern "*.jpg" \
-  --interval-sec 1.0 \
-  --raw
-```
-
-Expected JSON format:
+The current client reads the `prompt` field from a JSON file.
+A typical file looks like this:
 
 ```json
 {
-  "task": "find and approach the square box",
-  "target_object": "square box",
-  "prompt": "Task: find and approach the square box.\n\nLook at the image history and decide the single best next navigation action to find and approach the square box.\nIf the square box is not visible yet, choose a turn or move that helps discover it.\nIf the square box is visible but off-center, choose a turn that better aligns the robot with it.\nIf the square box is centered and still far away, move forward.\nIf the square box is already reached, output stop.\n\nOutput exactly one next action for navigation.\nThe action should be one of:\n- turn left by a specific degree\n- turn right by a specific degree\n- move forward a certain distance\n- stop\n"
+  "task": "find and approach the teddy bear",
+  "target_object": "teddy bear",
+  "prompt": "Task: find and approach the teddy bear.\n\n..."
 }
 ```
 
 Notes:
-- the current script reads the `prompt` field and sends it to the VLM server
-- `task` and `target_object` are kept in the JSON for consistent configuration management
+- `prompt` is the field actually sent to the VLM server
+- `task` and `target_object` are kept for organization and readability
 - if `--prompt-json` is given, it takes priority over `--task`
 
-Useful options:
-- `--once`: run only one inference and exit
-- `--dedupe`: do not resend the same normalized command twice in a row
-- `--min-images N`: wait until at least `N` images exist in the folder
-- `--keep-last N`: use the latest `N` files before pad/sample to 8 frames
+---
 
-One-shot folder test with JSON prompt:
+## 5. Convert one video into a same-name frame folder
+
+Example:
+
+```bash
+python test/video_to_frame_stream.py \
+  --video test/navila_box_testset/video/forward.mp4 \
+  --output-dir test/navila_box_testset \
+  --use-video-stem-dir \
+  --sample-fps 2.0 \
+  --clear-output
+```
+
+This creates:
+
+```text
+test/navila_box_testset/forward/
+```
+
+with files like:
+
+```text
+frame_000001_t000000000ms.jpg
+frame_000002_t000000500ms.jpg
+...
+```
+
+So the extracted frame folder name matches the video stem.
+
+---
+
+## 6. One-shot test with one folder containing 8 ordered images
+
+This is the simplest and most stable offline test.
 
 ```bash
 python test/navila_folder_stream_client.py \
   --host localhost \
   --port 54321 \
   --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
-  --images-dir test/navila_box_testset/turn_left_box \
+  --images-dir test/navila_box_testset/forward \
+  --pattern "*.jpg" \
+  --keep-last 8 \
+  --sort-by name \
   --once \
   --raw
 ```
 
+What this does:
+- reads the folder once
+- orders images by filename
+- takes the latest 8 images
+- sends them to the VLM server once
+- prints the raw output and the normalized command
+
+Typical output shape:
+
+```text
+[window] frames sent to server in order:
+  01. ...
+  ...
+  08. ...
+[raw]
+target_state: right, far away
+action: turn right by 15 degrees
+command: turn right 15 degrees
+```
+
 ---
 
-## 7. Keep the bridge alive and stream commands continuously
+## 7. Continuous test with one-by-one incoming images
 
-The existing bridge accepts one textual command per line from stdin.
-
-The folder-stream client can launch the bridge once and keep writing commands into it.
-
-Example with JSON prompt input:
+This mode is useful when images are appended gradually into a folder.
 
 ```bash
 python test/navila_folder_stream_client.py \
   --host localhost \
   --port 54321 \
   --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
-  --images-dir test/navila_box_testset/turn_left_box \
-  --interval-sec 1.0 \
+  --images-dir test/navila_box_testset/forward \
+  --pattern "*.jpg" \
+  --keep-last 8 \
+  --sort-by name \
+  --ingest-mode sequential \
+  --require-full-window \
+  --interval-sec 0.5 \
+  --raw
+```
+
+Key behavior:
+- new frames are discovered one by one
+- the client buffers them internally in order
+- nothing is sent until the buffer contains 8 real images
+- after that, every new image updates the sliding 8-frame window
+
+This is the current recommended mode for continuously appended frame folders.
+
+---
+
+## 8. Simulate a live image stream from a video
+
+You can combine the video extractor with the folder client.
+
+Terminal 1: NaVILA server
+
+Terminal 2: folder client
+
+```bash
+python test/navila_folder_stream_client.py \
+  --host localhost \
+  --port 54321 \
+  --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
+  --images-dir test/navila_box_testset/forward \
+  --pattern "*.jpg" \
+  --keep-last 8 \
+  --sort-by name \
+  --ingest-mode sequential \
+  --require-full-window \
+  --interval-sec 0.5 \
+  --raw
+```
+
+Terminal 3: stream frames into that folder
+
+```bash
+python test/video_to_frame_stream.py \
+  --video test/navila_box_testset/video/forward.mp4 \
+  --output-dir test/navila_box_testset \
+  --use-video-stem-dir \
+  --sample-fps 2.0 \
+  --stream \
+  --stream-interval-sec 0.5 \
+  --clear-output
+```
+
+This produces a file-based live stream without any extra image socket.
+
+---
+
+## 9. Save exactly which 8 images were sent to the server
+
+The client can record the actual 8-frame window used for each request.
+
+### Save copied windows
+```bash
+--save-window-dir test/navila_box_testset/sent_windows
+```
+
+This creates directories like:
+
+```text
+test/navila_box_testset/sent_windows/window_0001/
+test/navila_box_testset/sent_windows/window_0002/
+```
+
+Each window folder contains:
+- the 8 images in server order
+- `window.json`
+
+### Save a JSONL manifest
+```bash
+--save-window-manifest test/navila_box_testset/sent_windows.jsonl
+```
+
+This appends one record per request with the ordered image paths.
+
+Combined example:
+
+```bash
+python test/navila_folder_stream_client.py \
+  --host localhost \
+  --port 54321 \
+  --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
+  --images-dir test/navila_box_testset/right \
+  --pattern "*.jpg" \
+  --keep-last 8 \
+  --sort-by name \
+  --once \
+  --raw \
+  --save-window-dir test/navila_box_testset/sent_windows \
+  --save-window-manifest test/navila_box_testset/sent_windows.jsonl
+```
+
+---
+
+## 10. Optional bridge integration
+
+The existing bridge accepts one text command per line from stdin.
+
+The folder client can keep the bridge alive and send commands into it.
+
+```bash
+python test/navila_folder_stream_client.py \
+  --host localhost \
+  --port 54321 \
+  --prompt-json test/navila_box_testset/navila_square_box_prompt.json \
+  --images-dir test/navila_box_testset/forward \
+  --pattern "*.jpg" \
+  --keep-last 8 \
+  --sort-by name \
+  --ingest-mode sequential \
+  --require-full-window \
+  --interval-sec 0.5 \
   --dedupe \
   --bridge-cmd "python test/navila_holosoma_bridge_v0.py --stdin --dry-run"
 ```
 
-This means:
-- the bridge process is started once
-- the client keeps watching the image folder
-- each new normalized text command is written into the bridge stdin
-- if `--dedupe` is enabled, repeated identical commands are suppressed
-
-So for continuous use, you do **not** need to restart the bridge every time.
+Important:
+- the displayed line is printed as `command: ...`
+- the actual payload sent to the bridge is still only the normalized command text
+- debug-only information such as target state is not sent to the bridge
 
 ---
 
-## 8. Pipe directly into the existing bridge for one-shot use
+## 11. Current output behavior
 
-The smallest one-time connection is still:
+The client prints three kinds of information.
 
-```bash
-python test/navila_min_client.py \
-  --task "Go to the doorway." \
-  --images frame1.jpg frame2.jpg frame3.jpg frame4.jpg frame5.jpg frame6.jpg frame7.jpg frame8.jpg \
-| python test/navila_holosoma_bridge_v0.py --stdin --dry-run
-```
+### A. Window debug
+Before sending a request, it prints the 8 images sent to the server in order.
 
-Replace `--dry-run` when you are ready to use the real backend.
+### B. Raw VLM output
+With `--raw`, it prints the raw text returned by the VLM.
+This can be one line or multiple lines.
 
----
-
-## 9. Input format used by the clients
-
-Both clients send a JSON payload to the NaVILA VLM server through TCP socket.
-
-Payload structure:
-
-```json
-{
-  "images": ["<base64_jpeg>", "<base64_jpeg>", "..."],
-  "query": "task text"
-}
-```
-
-Protocol:
-1. send 8-byte big-endian payload size
-2. send JSON bytes
-3. receive 8-byte response size
-4. receive response body
-
-This matches the released `scripts/vlm_server.py` protocol.
-
----
-
-## 10. Frame handling
-
-### `test/navila_min_client.py`
-This client expects **1 to N** input image files.
-
-Behavior:
-- if fewer than 8 images are given, it pads to 8 frames
-- if more than 8 images are given, it samples them down to 8 frames
-- if exactly 8 images are given, it uses them directly
-
-### `test/navila_folder_stream_client.py`
-This client:
-- scans a folder
-- sorts images by modification time
-- takes the latest `--keep-last` files
-- pads / samples them to 8 frames
-- sends them to the VLM server
-
-This keeps the input format aligned with the released NaVILA evaluation idea of fixed-length image history.
-
----
-
-## 11. Output normalization
-
-The clients keep only bridge-friendly textual commands.
-
-Accepted output forms include:
-- `stop`
-- `move forward 50 centimeters`
-- `move forward 0.5 meters`
-- `turn left 15 degrees`
-- `turn right 30 degrees`
-
-If NaVILA outputs something outside the supported pattern, the clients fall back to:
+### C. Final normalized action
+The final displayed action is printed as:
 
 ```text
-stop
+command: turn right 15 degrees
 ```
 
-This is for safety and parser stability.
-
----
-
-## 12. Generate a mock image-stream dataset
-
-You can generate a synthetic dataset for quick testing:
-
-```bash
-python test/generate_mock_navila_stream_dataset.py
-```
-
-Default output:
+The bridge still receives:
 
 ```text
-test/mock_navila_stream_dataset
+turn right 15 degrees
 ```
 
-Generated sequences:
-- `forward/`
-- `turn_left/`
-- `turn_right/`
-- `stop/`
-
-Custom output directory:
-
-```bash
-python test/generate_mock_navila_stream_dataset.py --out-dir /your/path/mock_navila_stream_dataset
-```
-
-This dataset is useful for:
-- client debugging
-- bridge integration testing
-- folder-stream loop verification
-
-It is synthetic and only intended for pipeline validation.
+So the `command:` prefix is only for display.
 
 ---
 
-## 13. Recommended test order
+## 12. Filename and ordering notes
 
-1. start NaVILA VLM server
-2. generate the mock dataset or prepare your own 8 images
-3. test `test/navila_min_client.py`
-4. test `test/navila_folder_stream_client.py --once`
-5. test `test/navila_folder_stream_client.py --bridge-cmd ...`
-6. later replace folder images with your real camera export / cache
+Recommended naming for extracted or hand-prepared images:
 
-This order isolates problems cleanly.
+```text
+frame_000001.jpg
+frame_000002.jpg
+...
+frame_000008.jpg
+```
+
+or the timestamped form generated by `video_to_frame_stream.py`:
+
+```text
+frame_000001_t000000000ms.jpg
+frame_000002_t000000500ms.jpg
+...
+```
+
+Recommendations:
+- prefer `--sort-by name` when filenames are monotonic and time-ordered
+- keep image format consistent inside one test folder
+- if your command uses `--pattern "*.jpg"`, PNG files in the same folder will be ignored
+- avoid ad-hoc names such as many `copy`, `copy 2`, `copy 3` variants for formal testing
+
+---
+
+## 13. Minimal recommended workflows
+
+### Workflow A: offline verification from an extracted video
+1. convert one video into a same-name frame folder
+2. run the one-shot 8-image test with `--once`
+3. inspect the raw output and saved window if needed
+
+### Workflow B: continuous file-based streaming
+1. start the NaVILA server
+2. start the folder client in sequential mode
+3. append frames gradually into the watched folder
+4. optionally connect the bridge
 
 ---
 
 ## 14. Summary
 
-For the current stage, the top-layer integration is already practical:
+For the current repo state, the practical and maintained path is:
+- use `test/navila_folder_stream_client.py`
+- use `test/video_to_frame_stream.py` for video discretization
+- use `--once` for fixed 8-image tests
+- use `--ingest-mode sequential --require-full-window` for continuous appended-image tests
+- use `--save-window-dir` / `--save-window-manifest` when you need exact server-window traceability
 
-- NaVILA VLM server generates text commands
-- `test/navila_min_client.py` supports one-shot offline testing
-- `test/navila_folder_stream_client.py` supports folder-based continuous streaming
-- the folder-stream client supports direct task text and JSON prompt files
-- the existing bridge can stay alive and continuously receive commands through stdin
-
-So the remaining real-world step later is only to replace synthetic or saved images with your actual image source.
+So the remaining real-world step later is only to replace saved frames with your actual image source while keeping the same client interface.
