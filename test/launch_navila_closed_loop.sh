@@ -20,11 +20,7 @@ echo "[NAVILA_CLOSED_LOOP] VLM=$VLM_HOST:$VLM_PORT"
 echo "[NAVILA_CLOSED_LOOP] HOLOSOMA_INTERFACE=$HOLOSOMA_INTERFACE"
 echo "[NAVILA_CLOSED_LOOP] layout=$LAYOUT_FILE"
 
-# Cache sudo once before opening Terminator.
-# This avoids password prompts inside split panes if source_inference_setup.sh uses sudo.
-if command -v sudo >/dev/null 2>&1; then
-    sudo -v || true
-fi
+sudo -v || true
 
 cat > "$LAYOUT_FILE" <<EOF
 [global_config]
@@ -58,21 +54,21 @@ cat > "$LAYOUT_FILE" <<EOF
       parent = hpaned0
       order = 0
       title = MuJoCo Camera Stream
-      command = bash -lc 'cd "$HOLOSOMA_ROOT"; bash scripts/run_navila_mujoco_stream.sh; exec bash'
+      command = bash -lc 'cd "$HOLOSOMA_ROOT"; echo "[MuJoCo Camera Stream]"; echo "bash scripts/run_navila_mujoco_stream.sh"; bash scripts/run_navila_mujoco_stream.sh; exec bash'
 
     [[[terminal_policy]]]
       type = Terminal
       parent = hpaned0
       order = 1
       title = Holosoma Policy
-      command = bash -lc 'cd "$DEX_ROOT"; HOLOSOMA_ROOT="$HOLOSOMA_ROOT" HOLOSOMA_INTERFACE="$HOLOSOMA_INTERFACE" bash test/run_holosoma_policy.sh; exec bash'
+      command = bash -lc 'cd "$DEX_ROOT"; echo "[Holosoma Policy]"; echo "bash test/run_holosoma_policy.sh"; HOLOSOMA_ROOT="$HOLOSOMA_ROOT" HOLOSOMA_INTERFACE="$HOLOSOMA_INTERFACE" bash test/run_holosoma_policy.sh; exec bash'
 
     [[[terminal_client]]]
       type = Terminal
       parent = vpaned0
       order = 1
       title = NaVILA Client + Bridge
-      command = bash -lc 'cd "$DEX_ROOT"; VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" bash test/run_navila_client_wait_ok.sh; exec bash'
+      command = bash -lc 'cd "$DEX_ROOT"; echo "[NaVILA Client + Bridge]"; echo "bash test/run_navila_client_wait_ok.sh"; VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" bash test/run_navila_client_wait_ok.sh; exec bash'
 [plugins]
 EOF
 
@@ -81,17 +77,11 @@ TERM_PID=$!
 
 sleep 2
 
-# Bring the new Terminator window to the front when supported.
 if command -v wmctrl >/dev/null 2>&1; then
     wmctrl -a "NaVILA Closed Loop" || true
     wmctrl -r "NaVILA Closed Loop" -b add,above || true
     sleep 0.3
     wmctrl -r "NaVILA Closed Loop" -b remove,above || true
-elif command -v xdotool >/dev/null 2>&1; then
-    WIN_ID="$(xdotool search --sync --name "NaVILA Closed Loop" | head -n 1 || true)"
-    if [ -n "$WIN_ID" ]; then
-        xdotool windowactivate "$WIN_ID" windowraise "$WIN_ID" || true
-    fi
 fi
 
 wait "$TERM_PID"
