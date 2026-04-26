@@ -20,7 +20,7 @@ echo "[NAVILA_CLOSED_LOOP] VLM=$VLM_HOST:$VLM_PORT"
 echo "[NAVILA_CLOSED_LOOP] HOLOSOMA_INTERFACE=$HOLOSOMA_INTERFACE"
 echo "[NAVILA_CLOSED_LOOP] layout=$LAYOUT_FILE"
 
-# Optional: cache sudo once before opening Terminator.
+# Cache sudo once before opening Terminator.
 # This avoids password prompts inside split panes if source_inference_setup.sh uses sudo.
 if command -v sudo >/dev/null 2>&1; then
     sudo -v || true
@@ -72,7 +72,7 @@ cat > "$LAYOUT_FILE" <<EOF
       parent = vpaned0
       order = 1
       title = NaVILA Client + Bridge
-      command = bash -lc 'cd "$DEX_ROOT"; echo "[NaVILA Client] Waiting for manual start."; echo "[NaVILA Client] Type ok and press Enter to start receiving images."; while true; do read -r -p "Start NaVILA client? type ok: " ans; if [ "\$ans" = "ok" ]; then break; fi; echo "Please type exactly: ok"; done; VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" bash test/run_navila_mujoco_client.sh; exec bash'
+      command = bash -lc 'cd "$DEX_ROOT"; VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" bash test/run_navila_client_wait_ok.sh; exec bash'
 [plugins]
 EOF
 
@@ -81,6 +81,7 @@ TERM_PID=$!
 
 sleep 2
 
+# Bring the new Terminator window to the front when supported.
 if command -v wmctrl >/dev/null 2>&1; then
     wmctrl -a "NaVILA Closed Loop" || true
     wmctrl -r "NaVILA Closed Loop" -b add,above || true
