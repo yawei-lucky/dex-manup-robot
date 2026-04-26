@@ -1,37 +1,45 @@
-base) kylin@kylin-P15-23:~/robotics/dex-manup-robot/test$ python3 navila_holosoma_bridge.py --demo-sequence
+[NaVILA Client] Waiting for manual start.
+[NaVILA Client] Type ok and press Enter to start receiving images.
+Start NaVILA client? type ok: ok
+Please type exactly: ok
+Start NaVILA client? type ok: ok
+Please type exactly: ok
+Start NaVILA client? type ok: OK
+Please type exactly: ok
+Start NaVILA client? type ok: 
+
+
+[HOLOSOMA_POLICY] HOLOSOMA_ROOT=/home/kylin/robotics/holosoma
+[HOLOSOMA_POLICY] HOLOSOMA_INTERFACE=lo
+conda environment name is set to: hsinference
+[sudo] password for kylin: 
+✓ UFW disabled
+2026-04-25 06:30:28.743 | INFO     | __main__:run_policy:103 - 🚀 Starting Policy with Tyro configuration...
+2026-04-25 06:30:28.743 | INFO     | __main__:run_policy:104 - 🤖 Robot: g1_29dof
+2026-04-25 06:30:28.743 | INFO     | __main__:run_policy:105 - 📋 Observation groups: ['actor_obs']
+2026-04-25 06:30:28.743 | INFO     | __main__:run_policy:106 - ⚙️ RL Rate: 50.0 Hz
+2026-04-25 06:30:28.743 | INFO     | __main__:run_policy:107 - 📁 Model path: src/holosoma_inference/holosoma_inference/models/loco/g1_29dof/fastsac_g1_29dof.onnx
+2026-04-25 06:30:28.745 | INFO     | __main__:run_policy:118 - Using LocomotionPolicy
+1777113028.750686 [0]    python3: selected interface "lo" is not multicast-capable: disabling multicast
+UnitreeInterface initialized: G1-HG (29 motors, HG messages) on interface: lo
+[DEBUG] LowCommandWriter - No motor command available!
+2026-04-25 06:30:28.858 | INFO     | holosoma_inference.policies.base:setup_policy:401 - Loaded KP/KD from ONNX metadata: fastsac_g1_29dof.onnx
+2026-04-25 06:30:28.858 | INFO     | holosoma_inference.policies.base:_resolve_control_gains:432 - Using KP/KD from ONNX metadata
+2026-04-25 06:30:28.859 | ERROR    | __main__:run_policy:128 - ❌ Error running policy: No module named 'rclpy'
 Traceback (most recent call last):
-  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 303, in __init__
+  File "/home/kylin/robotics/holosoma/src/holosoma_inference/holosoma_inference/run_policy.py", line 119, in run_policy
+    policy = policy_class(config=config)
+  File "/home/kylin/robotics/holosoma/src/holosoma_inference/holosoma_inference/policies/locomotion.py", line 11, in __init__
+    super().__init__(config)
+  File "/home/kylin/robotics/holosoma/src/holosoma_inference/holosoma_inference/policies/base.py", line 60, in __init__
+    self._init_input_handlers()
+  File "/home/kylin/robotics/holosoma/src/holosoma_inference/holosoma_inference/policies/base.py", line 302, in _init_input_handlers
+    self._init_input_device()
+  File "/home/kylin/robotics/holosoma/src/holosoma_inference/holosoma_inference/policies/base.py", line 330, in _init_input_device
+    self._create_input_providers()
+  File "/home/kylin/robotics/holosoma/src/holosoma_inference/holosoma_inference/policies/base.py", line 357, in _create_input_providers
+    self._velocity_input.start()
+  File "/home/kylin/robotics/holosoma/src/holosoma_inference/holosoma_inference/inputs/impl/ros2.py", line 66, in start
     import rclpy
-  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 49, in <module>
-    from rclpy.signals import install_signal_handlers
-  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/signals.py", line 15, in <module>
-    from rclpy.exceptions import InvalidHandle
-  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/exceptions.py", line 15, in <module>
-    from rclpy.impl.implementation_singleton import rclpy_implementation as _rclpy
-  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/impl/implementation_singleton.py", line 32, in <module>
-    rclpy_implementation = import_c_library('._rclpy_pybind11', package)
-  File "/opt/ros/humble/lib/python3.10/site-packages/rpyutils/import_c_library.py", line 39, in import_c_library
-    return importlib.import_module(name, package=package)
-           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kylin/anaconda3/lib/python3.13/importlib/__init__.py", line 88, in import_module
-    return _bootstrap._gcd_import(name[level:], package, level)
-           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-ModuleNotFoundError: No module named 'rclpy._rclpy_pybind11'
-The C extension '/opt/ros/humble/lib/python3.10/site-packages/_rclpy_pybind11.cpython-313-x86_64-linux-gnu.so' isn't present on the system. Please refer to 'https://docs.ros.org/en/humble/Guides/Installation-Troubleshooting.html#import-failing-without-library-present-on-the-system' for possible solutions
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 503, in <module>
-    raise SystemExit(main())
-                     ~~~~^^
-  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 472, in main
-    backend = build_backend(args)
-  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 457, in build_backend
-    return HolosomaRos2Backend(cmd_vel_topic=args.cmd_vel_topic, state_topic=args.state_topic)
-  File "/home/kylin/robotics/dex-manup-robot/test/navila_holosoma_bridge.py", line 308, in __init__
-    raise RuntimeError(
-    ...<2 lines>...
-    ) from exc
-RuntimeError: ROS2 backend requested but rclpy / geometry_msgs / std_msgs is unavailable. Use --dry-run or source your ROS2 environment first.
-这是什么问题
+ModuleNotFoundError: No module named 'rclpy'
+(base) kylin@kylin-P15-23:~/robotics/dex-manup-robot$ 

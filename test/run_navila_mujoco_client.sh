@@ -6,7 +6,16 @@ DEX_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "$DEX_ROOT"
 
-# 默认假设 holosoma 和 dex-manup-robot 都在 ~/robotics 下
+# -------------------------------
+# VLM server config
+# -------------------------------
+# 默认使用你的 VLM server / 仿真服务地址
+VLM_HOST="${VLM_HOST:-100.110.59.37}"
+VLM_PORT="${VLM_PORT:-54321}"
+
+# -------------------------------
+# Path config
+# -------------------------------
 HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/holosoma}"
 
 IMAGES_DIR="${IMAGES_DIR:-${HOLOSOMA_ROOT}/runtime/navila_mujoco_stream}"
@@ -17,13 +26,15 @@ mkdir -p "$WINDOW_DIR"
 
 echo "[NAVILA_CLIENT] DEX_ROOT=$DEX_ROOT"
 echo "[NAVILA_CLIENT] HOLOSOMA_ROOT=$HOLOSOMA_ROOT"
+echo "[NAVILA_CLIENT] VLM=$VLM_HOST:$VLM_PORT"
 echo "[NAVILA_CLIENT] IMAGES_DIR=$IMAGES_DIR"
 echo "[NAVILA_CLIENT] WINDOW_DIR=$WINDOW_DIR"
 echo "[NAVILA_CLIENT] PROMPT_JSON=$PROMPT_JSON"
+echo "[NAVILA_CLIENT] BRIDGE=bash test/run_navila_bridge_ros2.sh"
 
 python test/navila_stream_client.py \
-  --host localhost \
-  --port 54321 \
+  --host "$VLM_HOST" \
+  --port "$VLM_PORT" \
   --prompt-json "$PROMPT_JSON" \
   --images-dir "$IMAGES_DIR" \
   --pattern "*.jpg" \
@@ -32,5 +43,6 @@ python test/navila_stream_client.py \
   --ingest-mode sequential \
   --require-full-window \
   --interval-sec 0.2 \
-  --save-window-dir "$WINDOW_DIR" \
+  --bridge-cmd "bash test/run_navila_bridge_ros2.sh" \
+  --dedupe \
   --raw
