@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import os
 import queue
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import threading
+import time
+from pathlib import Path
 from typing import Optional
 
 
@@ -130,6 +134,37 @@ def tty_reader(out_queue: "queue.Queue[tuple[str, str]]") -> None:
         print(f"[gate] manual tty input disabled: {exc}", flush=True)
 
 
+def ensure_fifo(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        mode = path.stat().st_mode
+        if not stat.S_ISFIFO(mode):
+            raise RuntimeError(f"Control path exists but is not a FIFO: {path}")
+        return
+    os.mkfifo(path)
+
+
+def fifo_reader(out_queue: "queue.Queue[tuple[str, str]]", fifo_path: Path) -> None:
+    """Read manual commands from a named pipe, allowing a separate input terminal."""
+    try:
+        ensure_fifo(fifo_path)
+    except Exception as exc:
+        print(f"[gate] control FIFO disabled: {exc}", flush=True)
+        return
+
+    print(f"[gate] control FIFO: {fifo_path}", flush=True)
+    while True:
+        try:
+            with fifo_path.open("r", encoding="utf-8", errors="replace") as fifo:
+                for line in fifo:
+                    line = line.strip()
+                    if line:
+                        out_queue.put(("manual", line))
+        except Exception as exc:
+            print(f"[gate] control FIFO read error: {exc}", flush=True)
+            time.sleep(0.5)
+
+
 def print_help() -> None:
     print("[gate] manual commands:", flush=True)
     print("[gate]   go                         enable VLM commands", flush=True)
@@ -150,6 +185,7 @@ def main() -> int:
     )
     parser.add_argument("--require-go", action="store_true", help="Start with VLM command forwarding disabled until manual 'go'.")
     parser.add_argument("--no-manual", action="store_true", help="Disable manual /dev/tty command input.")
+    parser.add_argument("--control-fifo", type=Path, default=None, help="Named pipe for manual commands from a separate terminal.")
     args = parser.parse_args()
 
     bridge = BridgeProcess(args.bridge_cmd)
@@ -159,6 +195,8 @@ def main() -> int:
     threading.Thread(target=stdin_reader, args=(events,), daemon=True).start()
     if not args.no_manual:
         threading.Thread(target=tty_reader, args=(events,), daemon=True).start()
+    if args.control_fifo is not None:
+        threading.Thread(target=fifo_reader, args=(events, args.control_fifo), daemon=True).start()
 
     auto_enabled = not args.require_go
     print("[gate] VLM command forwarding: " + ("enabled" if auto_enabled else "locked, waiting for manual 'go'"), flush=True)
