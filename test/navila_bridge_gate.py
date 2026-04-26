@@ -20,7 +20,9 @@ TURN_RE = re.compile(
     re.IGNORECASE,
 )
 MOVE_RE = re.compile(
-    r"\b(?:move|moving)\s+(?P<fb>forward|backward|back)\s+(?P<val>[-+]?\d+(?:\.\d+)?)\s*(?P<unit>cm|centimeter|centimeters|m|meter|meters)\b",
+    r"\b(?:move|moving)\s+(?P<dir>forward|backward|back|left|right)\s+"
+    r"(?P<val>[-+]?\d+(?:\.\d+)?)\s*"
+    r"(?P<unit>cm|centimeter|centimeters|m|meter|meters)\b",
     re.IGNORECASE,
 )
 
@@ -54,8 +56,8 @@ def normalize_command(text: str) -> Optional[str]:
 
     move_match = MOVE_RE.search(cleaned)
     if move_match:
-        direction = move_match.group("fb").lower()
-        bridge_direction = "backward" if direction in {"back", "backward"} else "forward"
+        direction = move_match.group("dir").lower()
+        bridge_direction = "backward" if direction in {"back", "backward"} else direction
         value = float(move_match.group("val"))
         unit = move_match.group("unit").lower()
         if value <= 0:
@@ -117,7 +119,6 @@ class BridgeProcess:
 
 
 def stdin_reader(out_queue: "queue.Queue[tuple[str, str]]") -> None:
-    """Read automatic VLM commands from stdin, which is connected to navila_stream_client."""
     for line in sys.stdin:
         line = line.strip()
         if line:
@@ -125,7 +126,6 @@ def stdin_reader(out_queue: "queue.Queue[tuple[str, str]]") -> None:
 
 
 def tty_reader(out_queue: "queue.Queue[tuple[str, str]]") -> None:
-    """Read manual commands from the current terminal even though stdin is used by the client pipe."""
     try:
         with open("/dev/tty", "r", encoding="utf-8", errors="replace") as tty:
             for line in tty:
@@ -147,7 +147,6 @@ def ensure_fifo(path: Path) -> None:
 
 
 def fifo_reader(out_queue: "queue.Queue[tuple[str, str]]", fifo_path: Path) -> None:
-    """Read manual commands from a named pipe, allowing a separate input terminal."""
     try:
         ensure_fifo(fifo_path)
     except Exception as exc:
@@ -172,9 +171,10 @@ def print_help() -> None:
     print("[gate]   go                         enable VLM commands", flush=True)
     print("[gate]   pause | hold               disable VLM commands and send stop", flush=True)
     print("[gate]   stop                       send stop immediately and disable VLM commands", flush=True)
-    print("[gate]   move forward 25 centimeters", flush=True)
-    print("[gate]   move backward 25 centimeters", flush=True)
-    print("[gate]   move back 25 centimeters", flush=True)
+    print("[gate]   move forward 20 centimeters", flush=True)
+    print("[gate]   move backward 20 centimeters", flush=True)
+    print("[gate]   move left 20 centimeters", flush=True)
+    print("[gate]   move right 20 centimeters", flush=True)
     print("[gate]   turn left 15 degrees", flush=True)
     print("[gate]   turn right 15 degrees", flush=True)
     print("[gate]   help", flush=True)
@@ -241,7 +241,6 @@ def main() -> int:
                 bridge.send(manual_cmd, source="manual")
                 continue
 
-            # Automatic VLM command path.
             vlm_cmd = normalize_command(text)
             if vlm_cmd is None:
                 print(f"[gate] unsupported VLM command dropped: {text}", flush=True)
