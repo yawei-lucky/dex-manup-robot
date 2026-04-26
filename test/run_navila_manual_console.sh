@@ -38,6 +38,8 @@ Manual commands:
   stop                       send stop immediately and disable VLM automatic execution
   move forward 25 centimeters
   move forward 50 centimeters
+  move backward 25 centimeters
+  move back 25 centimeters
   turn left 15 degrees
   turn right 15 degrees
   help
@@ -91,6 +93,8 @@ Commands:
   stop
   move forward 25 centimeters
   move forward 50 centimeters
+  move backward 25 centimeters
+  move back 25 centimeters
   turn left 15 degrees
   turn right 15 degrees
   quit
