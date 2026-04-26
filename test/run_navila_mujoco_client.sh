@@ -29,7 +29,7 @@ CLIENT_LOG_FILE="${CLIENT_LOG_FILE:-${CLIENT_LOG_DIR}/navila_client_$(date +%Y%m
 # Bridge gate config
 # -------------------------------
 NAVILA_REQUIRE_GO="${NAVILA_REQUIRE_GO:-1}"
-BRIDGE_GATE_CMD="bash test/navila_bridge_gate.py --bridge-cmd 'bash test/run_navila_bridge_ros2.sh'"
+BRIDGE_GATE_CMD="python3 test/navila_bridge_gate.py --bridge-cmd 'bash test/run_navila_bridge_ros2.sh'"
 if [ "$NAVILA_REQUIRE_GO" = "1" ]; then
   BRIDGE_GATE_CMD="$BRIDGE_GATE_CMD --require-go"
 fi
