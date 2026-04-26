@@ -20,7 +20,7 @@ cat <<EOF
 Start / restart commands:
 
   # full closed-loop split launcher
-  bash test/launch_navila_closed_loop_split.sh
+  bash test/launch_navila_closed_loop.sh
 
   # manual console only
   bash test/run_navila_manual_console.sh

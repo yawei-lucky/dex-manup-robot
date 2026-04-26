@@ -1,0 +1,77 @@
+*.log
+*.txt
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.conda/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime outputs
+runtime/
+logs/
+outputs/
+output/
+tmp/
+temp/
+
+# NaVILA / MuJoCo generated data
+runtime/navila_mujoco_stream/
+runtime/navila_windows/
+runtime/logs/
+runtime/*.fifo
+/tmp/navila_mujoco_stream/
+/tmp/navila_windows/
+
+# Images / videos generated for debugging
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.gif
+
+# Large model/checkpoint files
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.bin
+*.safetensors
+
+# ROS / build artifacts
+build/
+install/
+log/
+
+# CMake / compiled files
+CMakeFiles/
+CMakeCache.txt
+cmake-build-*/
+*.o
+*.a
+*.out
+
+# Env files
+.env
+.env.*
