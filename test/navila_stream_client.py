@@ -37,18 +37,33 @@ class BridgeWriter:
     def send(self, command: str) -> None:
         if self.proc is None or self.proc.stdin is None:
             return
-        self.proc.stdin.write(command + "\n")
-        self.proc.stdin.flush()
+        try:
+            self.proc.stdin.write(command + "\n")
+            self.proc.stdin.flush()
+        except BrokenPipeError as exc:
+            raise RuntimeError(
+                "Bridge process is not accepting commands. "
+                "Check --bridge-cmd and the bridge terminal output."
+            ) from exc
 
     def close(self) -> None:
         if self.proc is None:
             return
         try:
             if self.proc.stdin is not None:
-                self.proc.stdin.close()
+                try:
+                    self.proc.stdin.close()
+                except BrokenPipeError:
+                    pass
         finally:
-            self.proc.terminate()
-            self.proc.wait(timeout=3)
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=3)
+            except ProcessLookupError:
+                pass
 
 
 def encode_image_to_base64(image: Image.Image) -> str:
@@ -229,15 +244,36 @@ def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int, sort_
     return list_ordered_image_paths(images_dir, pattern, sort_by)[-keep_last:]
 
 
+def _print_separator(label: str, request_index: int) -> None:
+    print(f"\n========== request {request_index:04d} | {label} ==========", flush=True)
+
+
+def _window_summary(image_paths: List[Path]) -> str:
+    if not image_paths:
+        return "0 frames"
+    first = image_paths[0]
+    last = image_paths[-1]
+    parent = first.parent
+    same_parent = all(p.parent == parent for p in image_paths)
+    parent_text = str(parent) if same_parent else "mixed-dirs"
+    return (
+        f"{len(image_paths)} frames | dir={parent_text} | "
+        f"first={first.name} | last={last.name}"
+    )
+
+
 def log_and_save_window(
     image_paths: List[Path],
     save_window_dir: Optional[Path],
     save_window_manifest: Optional[Path],
     request_index: int,
+    verbose_window_log: bool = False,
 ) -> None:
-    print("[window] frames sent to server in order:", flush=True)
-    for idx, path in enumerate(image_paths, start=1):
-        print(f"  {idx:02d}. {path}", flush=True)
+    _print_separator("window", request_index)
+    print(f"[window] {_window_summary(image_paths)}", flush=True)
+    if verbose_window_log:
+        for idx, path in enumerate(image_paths, start=1):
+            print(f"[window] {idx:02d}. {path}", flush=True)
 
     if save_window_dir is not None:
         window_dir = save_window_dir / f"window_{request_index:04d}"
@@ -281,6 +317,7 @@ def main() -> int:
     parser.add_argument("--require-full-window", action="store_true", help="Wait until the buffered window contains --keep-last real images before sending to the server")
     parser.add_argument("--save-window-dir", type=Path, default=None, help="Optional directory to save each 8-frame window sent to the server")
     parser.add_argument("--save-window-manifest", type=Path, default=None, help="Optional JSONL file that records the ordered image paths for every request")
+    parser.add_argument("--verbose-window-log", action="store_true", help="Print every image path in the 8-frame window. By default only a one-line window summary is printed.")
     args = parser.parse_args()
 
     if not args.images_dir.exists() or not args.images_dir.is_dir():
@@ -330,17 +367,27 @@ def main() -> int:
 
             last_signature = signature
             request_index += 1
-            log_and_save_window(image_paths, args.save_window_dir, args.save_window_manifest, request_index)
+            log_and_save_window(
+                image_paths,
+                args.save_window_dir,
+                args.save_window_manifest,
+                request_index,
+                verbose_window_log=args.verbose_window_log,
+            )
             images = load_images(image_paths)
             images = sample_to_8_frames(images)
+
+            _print_separator("vlm", request_index)
             raw_output = send_request(args.host, args.port, images, instruction)
             target_side = extract_target_side(raw_output)
             final_cmd = normalize_navila_output(raw_output)
             display_cmd = f"command: {final_cmd}"
 
             if args.raw:
-                print("[raw]:", flush=True)
+                print("[raw]", flush=True)
                 print(raw_output, flush=True)
+            if target_side is not None:
+                print(f"[target_side] {target_side}", flush=True)
             print(display_cmd, flush=True)
 
             should_send = True
@@ -348,8 +395,13 @@ def main() -> int:
                 should_send = False
 
             if should_send:
+                _print_separator("bridge", request_index)
+                print(f"[bridge] send: {final_cmd}", flush=True)
                 bridge.send(final_cmd)
                 last_sent_cmd = final_cmd
+            elif args.dedupe:
+                _print_separator("bridge", request_index)
+                print(f"[bridge] skipped duplicate command: {final_cmd}", flush=True)
 
             if args.once:
                 return 0
