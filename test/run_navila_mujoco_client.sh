@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEX_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -21,8 +22,11 @@ HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/holosoma}"
 IMAGES_DIR="${IMAGES_DIR:-${HOLOSOMA_ROOT}/runtime/navila_mujoco_stream}"
 WINDOW_DIR="${WINDOW_DIR:-${DEX_ROOT}/runtime/navila_windows}"
 PROMPT_JSON="${PROMPT_JSON:-test/navila_box_testset/prompt_bag_area.json}"
+CLIENT_LOG_DIR="${CLIENT_LOG_DIR:-${DEX_ROOT}/runtime/logs}"
+CLIENT_LOG_FILE="${CLIENT_LOG_FILE:-${CLIENT_LOG_DIR}/navila_client_$(date +%Y%m%d_%H%M%S).log}"
 
 mkdir -p "$WINDOW_DIR"
+mkdir -p "$CLIENT_LOG_DIR"
 
 echo "[NAVILA_CLIENT] DEX_ROOT=$DEX_ROOT"
 echo "[NAVILA_CLIENT] HOLOSOMA_ROOT=$HOLOSOMA_ROOT"
@@ -30,9 +34,10 @@ echo "[NAVILA_CLIENT] VLM=$VLM_HOST:$VLM_PORT"
 echo "[NAVILA_CLIENT] IMAGES_DIR=$IMAGES_DIR"
 echo "[NAVILA_CLIENT] WINDOW_DIR=$WINDOW_DIR"
 echo "[NAVILA_CLIENT] PROMPT_JSON=$PROMPT_JSON"
+echo "[NAVILA_CLIENT] CLIENT_LOG_FILE=$CLIENT_LOG_FILE"
 echo "[NAVILA_CLIENT] BRIDGE=bash test/run_navila_bridge_ros2.sh"
 
-python test/navila_stream_client.py \
+stdbuf -oL -eL python test/navila_stream_client.py \
   --host "$VLM_HOST" \
   --port "$VLM_PORT" \
   --prompt-json "$PROMPT_JSON" \
@@ -42,7 +47,7 @@ python test/navila_stream_client.py \
   --sort-by name \
   --ingest-mode sequential \
   --require-full-window \
-  --interval-sec 0.2 \
+  --interval-sec "${NAVILA_CLIENT_INTERVAL_SEC:-0.2}" \
   --bridge-cmd "bash test/run_navila_bridge_ros2.sh" \
-  --dedupe \
-  --raw
+  --raw \
+  2>&1 | tee -a "$CLIENT_LOG_FILE"
