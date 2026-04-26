@@ -1,26 +1,15 @@
 #!/usr/bin/env python3
-"""NaVILA-style mid-level action adapter for Holosoma (improved v2).
+"""NaVILA-style mid-level action adapter for Holosoma.
 
-Goals of this revision:
-- bootstrap to a stable standing state in simulation when requested
-- continuous cmd_vel streaming so Holosoma ROS2 timeout does not zero motion early
-- clear mode semantics: stand = hold standing, walk = locomotion mode
-- actions end in a stable stand state instead of falling after motion
-- stdin/demo/scenario paths all share the same motion lifecycle
-
-Holosoma side expected configuration:
-  --task.velocity-input ros2
-  --task.state-input ros2
-  --task.interface lo          # for sim-to-sim
-or
-  --task.interface <eth iface> # for real robot
-
-Published topics:
-  /cmd_vel                  geometry_msgs/msg/TwistStamped
-  /holosoma/state_input     std_msgs/msg/String
-
-State commands:
-  start, stop, walk, stand, init
+This bridge converts simple text commands into ROS2 velocity/state commands for
+Holosoma. Supported stdin commands include:
+  move forward 25 centimeters
+  move backward 25 centimeters
+  move left 20 centimeters
+  move right 20 centimeters
+  turn left 15 degrees
+  turn right 15 degrees
+  stop
 """
 
 from __future__ import annotations
@@ -37,13 +26,11 @@ from pathlib import Path
 from typing import Iterable, List
 
 
-# -----------------------------
-# Mid-level action definitions
-# -----------------------------
-
 class ActionType(str, Enum):
     MOVE_FORWARD = "move_forward"
     MOVE_BACKWARD = "move_backward"
+    MOVE_LEFT = "move_left"
+    MOVE_RIGHT = "move_right"
     TURN_LEFT = "turn_left"
     TURN_RIGHT = "turn_right"
     STOP = "stop"
@@ -71,53 +58,61 @@ class TargetObservation:
     label: str = "target"
 
 
-# -----------------------------
-# NaVILA-style text parser
-# -----------------------------
-
 class NavilaTextParser:
-    _DIST_RE = re.compile(
-        r"(?P<dir>move|moving)\s+(?P<fb>forward|backward)\s+(?P<val>[-+]?\d+(?:\.\d+)?)\s*(?P<unit>m|meter|meters|cm|centimeter|centimeters)",
+    _MOVE_RE = re.compile(
+        r"(?:move|moving)\s+"
+        r"(?P<dir>forward|backward|back|left|right)\s+"
+        r"(?P<val>[-+]?\d+(?:\.\d+)?)\s*"
+        r"(?P<unit>m|meter|meters|cm|centimeter|centimeters)",
         re.IGNORECASE,
     )
     _TURN_RE = re.compile(
-        r"turn\s+(?P<dir>left|right)\s+(?:by\s+)?(?P<val>[-+]?\d+(?:\.\d+)?)\s*(?P<unit>deg|degree|degrees)",
+        r"turn\s+(?P<dir>left|right)\s+(?:by\s+)?"
+        r"(?P<val>[-+]?\d+(?:\.\d+)?)\s*"
+        r"(?P<unit>deg|degree|degrees)",
         re.IGNORECASE,
     )
 
     def parse(self, text: str) -> List[MidLevelAction]:
+        raw_text = text
         text_norm = text.strip().lower()
         if not text_norm:
             return []
 
-        if "stop" in text_norm:
-            return [MidLevelAction(ActionType.STOP, raw_text=text)]
+        if text_norm in {"stop", "s", "halt"} or "stop" in text_norm:
+            return [MidLevelAction(ActionType.STOP, raw_text=raw_text)]
         if "pregrasp" in text_norm or "pre-grasp" in text_norm:
-            return [MidLevelAction(ActionType.PREGRASP, raw_text=text)]
+            return [MidLevelAction(ActionType.PREGRASP, raw_text=raw_text)]
         if "close gripper" in text_norm or text_norm in {"grasp", "grasp now"}:
-            return [MidLevelAction(ActionType.CLOSE_GRIPPER, raw_text=text)]
+            return [MidLevelAction(ActionType.CLOSE_GRIPPER, raw_text=raw_text)]
         if "lift" in text_norm:
-            return [MidLevelAction(ActionType.LIFT, raw_text=text)]
+            return [MidLevelAction(ActionType.LIFT, raw_text=raw_text)]
         if "open gripper" in text_norm or "release" in text_norm:
-            return [MidLevelAction(ActionType.OPEN_GRIPPER, raw_text=text)]
+            return [MidLevelAction(ActionType.OPEN_GRIPPER, raw_text=raw_text)]
         if "done" in text_norm or "finished" in text_norm:
-            return [MidLevelAction(ActionType.DONE, raw_text=text)]
+            return [MidLevelAction(ActionType.DONE, raw_text=raw_text)]
 
-        dist_match = self._DIST_RE.search(text_norm)
-        if dist_match:
-            val = float(dist_match.group("val"))
-            unit = dist_match.group("unit")
-            meters = self._to_meters(val, unit)
-            fb = dist_match.group("fb")
-            action = ActionType.MOVE_FORWARD if fb == "forward" else ActionType.MOVE_BACKWARD
-            return [MidLevelAction(action, value=meters, unit="m", raw_text=text)]
+        move_match = self._MOVE_RE.search(text_norm)
+        if move_match:
+            value = float(move_match.group("val"))
+            unit = move_match.group("unit")
+            meters = self._to_meters(value, unit)
+            direction = move_match.group("dir")
+            action_map = {
+                "forward": ActionType.MOVE_FORWARD,
+                "backward": ActionType.MOVE_BACKWARD,
+                "back": ActionType.MOVE_BACKWARD,
+                "left": ActionType.MOVE_LEFT,
+                "right": ActionType.MOVE_RIGHT,
+            }
+            return [MidLevelAction(action_map[direction], value=meters, unit="m", raw_text=raw_text)]
 
         turn_match = self._TURN_RE.search(text_norm)
         if turn_match:
-            val = float(turn_match.group("val"))
+            value = float(turn_match.group("val"))
             direction = turn_match.group("dir")
             action = ActionType.TURN_LEFT if direction == "left" else ActionType.TURN_RIGHT
-            return [MidLevelAction(action, value=val, unit="deg", raw_text=text)]
+            return [MidLevelAction(action, value=value, unit="deg", raw_text=raw_text)]
 
         raise ValueError(f"Unsupported action text: {text}")
 
@@ -130,10 +125,6 @@ class NavilaTextParser:
             return value / 100.0
         raise ValueError(f"Unsupported distance unit: {unit}")
 
-
-# -----------------------------
-# Simple task FSM for target approach
-# -----------------------------
 
 class TaskState(str, Enum):
     SEARCH = "search"
@@ -155,12 +146,10 @@ class SimpleTargetFSM:
     def step(self, obs: TargetObservation) -> List[MidLevelAction]:
         if self.state == TaskState.DONE:
             return [MidLevelAction(ActionType.DONE)]
-
         if self.state == TaskState.SEARCH:
             if not obs.found:
                 return [MidLevelAction(ActionType.TURN_LEFT, value=18.0, unit="deg", raw_text="search left")]
             self.state = TaskState.ALIGN
-
         if self.state == TaskState.ALIGN:
             if not obs.found:
                 self.state = TaskState.SEARCH
@@ -170,7 +159,6 @@ class SimpleTargetFSM:
                     return [MidLevelAction(ActionType.TURN_LEFT, value=min(30.0, 60.0 * abs(obs.x_error)), unit="deg")]
                 return [MidLevelAction(ActionType.TURN_RIGHT, value=min(30.0, 60.0 * abs(obs.x_error)), unit="deg")]
             self.state = TaskState.APPROACH
-
         if self.state == TaskState.APPROACH:
             if not obs.found:
                 self.state = TaskState.SEARCH
@@ -181,29 +169,20 @@ class SimpleTargetFSM:
             if obs.area_ratio < self.reach_area_ratio:
                 return [MidLevelAction(ActionType.MOVE_FORWARD, value=0.60, unit="m")]
             self.state = TaskState.REACHED
-
         if self.state == TaskState.REACHED:
             self.state = TaskState.PREGRASP
             return [MidLevelAction(ActionType.STOP)]
-
         if self.state == TaskState.PREGRASP:
             self.state = TaskState.GRASP
             return [MidLevelAction(ActionType.PREGRASP)]
-
         if self.state == TaskState.GRASP:
             self.state = TaskState.LIFT
             return [MidLevelAction(ActionType.CLOSE_GRIPPER)]
-
         if self.state == TaskState.LIFT:
             self.state = TaskState.DONE
             return [MidLevelAction(ActionType.LIFT)]
-
         return [MidLevelAction(ActionType.STOP)]
 
-
-# -----------------------------
-# Backends
-# -----------------------------
 
 class BackendBase:
     def start_policy(self) -> None:
@@ -329,10 +308,6 @@ class HolosomaRos2Backend(BackendBase):
         print(f"[ros2] placeholder manip action={action.action.value} (bind to arm SDK here)")
 
 
-# -----------------------------
-# Executor
-# -----------------------------
-
 class ActionExecutor:
     def __init__(
         self,
@@ -350,14 +325,9 @@ class ActionExecutor:
         self.publish_hz = publish_hz
         self.bootstrap_hold_sec = bootstrap_hold_sec
         self._policy_started = False
-        self._mode = None  # None / "stand" / "walk"
+        self._mode = None
 
     def bootstrap_to_stand(self) -> None:
-        """Bring robot/sim to a stable standing wait state.
-
-        This is especially useful in sim. On real robot you can disable it if
-        the platform already stands stably by itself.
-        """
         print("[bootstrap] init -> start -> stand")
         self.backend.init_pose()
         time.sleep(1.0)
@@ -439,6 +409,13 @@ class ActionExecutor:
             self._stream_velocity(sign * self.linear_speed_mps, 0.0, 0.0, duration)
             return
 
+        if action.action in {ActionType.MOVE_LEFT, ActionType.MOVE_RIGHT}:
+            distance = max(0.0, action.value)
+            sign = 1.0 if action.action == ActionType.MOVE_LEFT else -1.0
+            duration = distance / max(1e-6, self.linear_speed_mps)
+            self._stream_velocity(0.0, sign * self.linear_speed_mps, 0.0, duration)
+            return
+
         if action.action in {ActionType.TURN_LEFT, ActionType.TURN_RIGHT}:
             degrees = max(0.0, action.value)
             sign = 1.0 if action.action == ActionType.TURN_LEFT else -1.0
@@ -451,15 +428,12 @@ class ActionExecutor:
         raise ValueError(f"Unsupported action: {action.action}")
 
 
-# -----------------------------
-# CLI helpers
-# -----------------------------
-
 DEMO_SEQUENCE = [
     MidLevelAction(ActionType.TURN_LEFT, value=30.0, unit="deg", raw_text="turn left 30 degrees"),
-    MidLevelAction(ActionType.MOVE_FORWARD, value=3.0, unit="m", raw_text="move forward 3 meters"),
-    MidLevelAction(ActionType.TURN_RIGHT, value=30.0, unit="deg", raw_text="turn right 30 degrees"),
-    MidLevelAction(ActionType.MOVE_FORWARD, value=1.0, unit="m", raw_text="move forward 1.0 meters"),
+    MidLevelAction(ActionType.MOVE_FORWARD, value=1.0, unit="m", raw_text="move forward 1 meter"),
+    MidLevelAction(ActionType.MOVE_LEFT, value=0.2, unit="m", raw_text="move left 20 centimeters"),
+    MidLevelAction(ActionType.MOVE_RIGHT, value=0.2, unit="m", raw_text="move right 20 centimeters"),
+    MidLevelAction(ActionType.MOVE_BACKWARD, value=0.5, unit="m", raw_text="move backward 50 centimeters"),
     MidLevelAction(ActionType.STOP, raw_text="stop"),
 ]
 
@@ -490,12 +464,12 @@ def main() -> int:
     parser.add_argument("--scenario", type=Path, default=None, help="JSONL target-observation scenario for FSM testing")
     parser.add_argument("--cmd-vel-topic", type=str, default="/cmd_vel")
     parser.add_argument("--state-topic", type=str, default="/holosoma/state_input")
-    parser.add_argument("--linear-speed", type=float, default=0.45, help="Execution speed in m/s for distance actions")
+    parser.add_argument("--linear-speed", type=float, default=0.45, help="Execution speed in m/s for translation actions")
     parser.add_argument("--angular-speed-degps", type=float, default=60.0, help="Execution angular speed in deg/s")
     parser.add_argument("--publish-hz", type=float, default=10.0, help="How often to republish cmd_vel during motion")
     parser.add_argument("--settle-sec", type=float, default=0.4, help="Stand-and-zero hold after each action")
-    parser.add_argument("--bootstrap-stand", action="store_true", help="Run init->start->stand at startup (recommended for first-time sim setup)")
-    parser.add_argument("--skip-init", action="store_true", help="Skip initialization if robot is already prepared (for subsequent runs)")
+    parser.add_argument("--bootstrap-stand", action="store_true", help="Run init->start->stand at startup")
+    parser.add_argument("--skip-init", action="store_true", help="Skip initialization if robot is already prepared")
     args = parser.parse_args()
 
     backend = build_backend(args)
@@ -524,7 +498,10 @@ def main() -> int:
         return 0
 
     if args.stdin:
-        print("Enter NaVILA-style commands, e.g. 'move forward 75cm', 'turn left 15 degrees', 'stop'. Ctrl-D to quit.")
+        print(
+            "Enter commands, e.g. 'move forward 20 centimeters', "
+            "'move left 20 centimeters', 'turn left 15 degrees', 'stop'. Ctrl-D to quit."
+        )
         for line in sys.stdin:
             line = line.strip()
             if not line:
