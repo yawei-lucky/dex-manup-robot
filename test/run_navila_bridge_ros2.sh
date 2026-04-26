@@ -9,6 +9,8 @@ cd "$DEX_ROOT"
 
 source /opt/ros/humble/setup.bash
 
+EXTRA_ARGS=("$@")
+
 # Keep bridge logs readable in the client pane:
 # - print every non-cmd_vel line
 # - print only the first cmd_vel line of each continuous cmd_vel block
@@ -21,6 +23,7 @@ exec /usr/bin/python3 test/navila_holosoma_bridge.py \
   --angular-speed-degps "${NAVILA_ANGULAR_SPEED_DEGPS:-60.0}" \
   --publish-hz "${NAVILA_PUBLISH_HZ:-10.0}" \
   --settle-sec "${NAVILA_SETTLE_SEC:-0.4}" \
+  "${EXTRA_ARGS[@]}" \
   2>&1 | awk '
     /\[ros2\] cmd_vel/ {
       if (!in_cmd_vel_block) {
