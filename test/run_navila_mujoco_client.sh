@@ -25,6 +25,15 @@ PROMPT_JSON="${PROMPT_JSON:-test/navila_box_testset/prompt_bag_area.json}"
 CLIENT_LOG_DIR="${CLIENT_LOG_DIR:-${DEX_ROOT}/runtime/logs}"
 CLIENT_LOG_FILE="${CLIENT_LOG_FILE:-${CLIENT_LOG_DIR}/navila_client_$(date +%Y%m%d_%H%M%S).log}"
 
+# -------------------------------
+# Bridge gate config
+# -------------------------------
+NAVILA_REQUIRE_GO="${NAVILA_REQUIRE_GO:-1}"
+BRIDGE_GATE_CMD="bash test/navila_bridge_gate.py --bridge-cmd 'bash test/run_navila_bridge_ros2.sh'"
+if [ "$NAVILA_REQUIRE_GO" = "1" ]; then
+  BRIDGE_GATE_CMD="$BRIDGE_GATE_CMD --require-go"
+fi
+
 mkdir -p "$WINDOW_DIR"
 mkdir -p "$CLIENT_LOG_DIR"
 
@@ -35,7 +44,10 @@ echo "[NAVILA_CLIENT] IMAGES_DIR=$IMAGES_DIR"
 echo "[NAVILA_CLIENT] WINDOW_DIR=$WINDOW_DIR"
 echo "[NAVILA_CLIENT] PROMPT_JSON=$PROMPT_JSON"
 echo "[NAVILA_CLIENT] CLIENT_LOG_FILE=$CLIENT_LOG_FILE"
-echo "[NAVILA_CLIENT] BRIDGE=bash test/run_navila_bridge_ros2.sh"
+echo "[NAVILA_CLIENT] BRIDGE_GATE=$BRIDGE_GATE_CMD"
+echo "[NAVILA_CLIENT] NAVILA_REQUIRE_GO=$NAVILA_REQUIRE_GO"
+echo "[NAVILA_CLIENT] Type 'go' in this terminal to enable VLM bridge execution."
+echo "[NAVILA_CLIENT] Manual commands are also supported: stop, move forward 25 centimeters, turn left 15 degrees."
 
 stdbuf -oL -eL python test/navila_stream_client.py \
   --host "$VLM_HOST" \
@@ -48,6 +60,6 @@ stdbuf -oL -eL python test/navila_stream_client.py \
   --ingest-mode sequential \
   --require-full-window \
   --interval-sec "${NAVILA_CLIENT_INTERVAL_SEC:-0.2}" \
-  --bridge-cmd "bash test/run_navila_bridge_ros2.sh" \
+  --bridge-cmd "$BRIDGE_GATE_CMD" \
   --raw \
   2>&1 | tee -a "$CLIENT_LOG_FILE"
