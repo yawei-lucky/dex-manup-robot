@@ -20,7 +20,7 @@ TURN_RE = re.compile(
     re.IGNORECASE,
 )
 MOVE_RE = re.compile(
-    r"\b(?:move|moving)\s+forward\s+([-+]?\d+(?:\.\d+)?)\s*(cm|centimeter|centimeters|m|meter|meters)\b",
+    r"\b(?:move|moving)\s+(?P<fb>forward|backward|back)\s+(?P<val>[-+]?\d+(?:\.\d+)?)\s*(?P<unit>cm|centimeter|centimeters|m|meter|meters)\b",
     re.IGNORECASE,
 )
 
@@ -54,15 +54,17 @@ def normalize_command(text: str) -> Optional[str]:
 
     move_match = MOVE_RE.search(cleaned)
     if move_match:
-        value = float(move_match.group(1))
-        unit = move_match.group(2).lower()
+        direction = move_match.group("fb").lower()
+        bridge_direction = "backward" if direction in {"back", "backward"} else "forward"
+        value = float(move_match.group("val"))
+        unit = move_match.group("unit").lower()
         if value <= 0:
             return "stop"
         if unit in {"cm", "centimeter", "centimeters"}:
             value_str = f"{int(value)}" if value.is_integer() else f"{value:.1f}"
-            return f"move forward {value_str} centimeters"
+            return f"move {bridge_direction} {value_str} centimeters"
         value_str = f"{int(value)}" if value.is_integer() else f"{value:.2f}".rstrip("0").rstrip(".")
-        return f"move forward {value_str} meters"
+        return f"move {bridge_direction} {value_str} meters"
 
     return None
 
@@ -171,6 +173,8 @@ def print_help() -> None:
     print("[gate]   pause | hold               disable VLM commands and send stop", flush=True)
     print("[gate]   stop                       send stop immediately and disable VLM commands", flush=True)
     print("[gate]   move forward 25 centimeters", flush=True)
+    print("[gate]   move backward 25 centimeters", flush=True)
+    print("[gate]   move back 25 centimeters", flush=True)
     print("[gate]   turn left 15 degrees", flush=True)
     print("[gate]   turn right 15 degrees", flush=True)
     print("[gate]   help", flush=True)
