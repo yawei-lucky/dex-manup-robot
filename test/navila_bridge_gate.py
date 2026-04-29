@@ -28,13 +28,12 @@ MOVE_RE = re.compile(
 
 
 def normalize_command(text: str) -> Optional[str]:
-    """Return a bridge-compatible command, or None if the text is unsupported."""
     cleaned = text.strip().lower()
     cleaned = cleaned.replace("\u00a0", " ")
     cleaned = re.sub(r"[。．]+", "", cleaned)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
 
-    if cleaned in {"s", "stop", "halt"} or re.fullmatch(r"command:\s*stop", cleaned):
+    if cleaned in {"s", "stop", "halt", "="} or re.fullmatch(r"command:\s*stop", cleaned):
         return "stop"
 
     if cleaned.startswith("command:"):
@@ -166,11 +165,19 @@ def fifo_reader(out_queue: "queue.Queue[tuple[str, str]]", fifo_path: Path) -> N
             time.sleep(0.5)
 
 
+def drain_queue(events: "queue.Queue[tuple[str, str]]") -> None:
+    try:
+        while True:
+            events.get_nowait()
+    except queue.Empty:
+        return
+
+
 def print_help() -> None:
     print("[gate] manual commands:", flush=True)
     print("[gate]   go                         enable VLM commands", flush=True)
     print("[gate]   pause | hold               disable VLM commands and send stop", flush=True)
-    print("[gate]   stop                       send stop immediately and disable VLM commands", flush=True)
+    print("[gate]   stop | =                   send stop immediately and disable VLM commands", flush=True)
     print("[gate]   move forward 20 centimeters", flush=True)
     print("[gate]   move backward 20 centimeters", flush=True)
     print("[gate]   move left 20 centimeters", flush=True)
@@ -182,14 +189,10 @@ def print_help() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Gate NaVILA VLM commands before forwarding to Holosoma bridge")
-    parser.add_argument(
-        "--bridge-cmd",
-        default="bash test/run_navila_bridge_ros2.sh",
-        help="Actual bridge command that receives normalized commands on stdin.",
-    )
-    parser.add_argument("--require-go", action="store_true", help="Start with VLM command forwarding disabled until manual 'go'.")
-    parser.add_argument("--no-manual", action="store_true", help="Disable manual /dev/tty command input.")
-    parser.add_argument("--control-fifo", type=Path, default=None, help="Named pipe for manual commands from a separate terminal.")
+    parser.add_argument("--bridge-cmd", default="bash test/run_navila_bridge_ros2.sh")
+    parser.add_argument("--require-go", action="store_true")
+    parser.add_argument("--no-manual", action="store_true")
+    parser.add_argument("--control-fifo", type=Path, default=None)
     args = parser.parse_args()
 
     bridge = BridgeProcess(args.bridge_cmd)
@@ -213,11 +216,13 @@ def main() -> int:
 
             if source == "manual":
                 if lower in {"go", "g"}:
+                    drain_queue(events)
                     auto_enabled = True
-                    print("[gate] VLM command forwarding enabled.", flush=True)
+                    print("[gate] VLM command forwarding enabled; stale queued commands cleared.", flush=True)
                     continue
 
                 if lower in {"pause", "hold", "lock"}:
+                    drain_queue(events)
                     auto_enabled = False
                     print("[gate] VLM command forwarding disabled. Sending stop.", flush=True)
                     bridge.send("stop", source="manual")
@@ -227,7 +232,8 @@ def main() -> int:
                     print_help()
                     continue
 
-                if lower in {"stop", "s", "halt"}:
+                if lower in {"stop", "s", "halt", "="}:
+                    drain_queue(events)
                     auto_enabled = False
                     print("[gate] manual stop; VLM command forwarding disabled.", flush=True)
                     bridge.send("stop", source="manual")
@@ -236,7 +242,6 @@ def main() -> int:
                 manual_cmd = normalize_command(text)
                 if manual_cmd is None:
                     print(f"[gate] unsupported manual command: {text}", flush=True)
-                    print("[gate] type 'help' for supported commands.", flush=True)
                     continue
                 bridge.send(manual_cmd, source="manual")
                 continue
