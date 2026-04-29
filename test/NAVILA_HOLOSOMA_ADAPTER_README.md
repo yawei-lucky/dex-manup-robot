@@ -88,6 +88,8 @@ python3 navila_holosoma_bridge.py --stdin --bootstrap-stand
 
 ### Speed parameters for G1
 
+/usr/bin/python3 test/navila_holosoma_bridge.py --stdin --bootstrap-stand
+
 The adapter uses fixed execution speeds (configurable):
 - Linear speed: `0.45 m/s` (default) — balanced for simulation
 - Angular speed: `60.0 deg/s` (default)

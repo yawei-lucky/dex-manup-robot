@@ -39,3 +39,4 @@ exec /usr/bin/python3 test/navila_holosoma_bridge.py \
       fflush();
     }
   '
+# /usr/bin/python3 test/navila_holosoma_bridge.py --stdin --bootstrap-stand
