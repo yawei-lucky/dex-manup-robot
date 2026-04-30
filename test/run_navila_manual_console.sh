@@ -22,17 +22,17 @@ Start / restart commands:
   # full closed-loop split launcher
   bash test/launch_navila_closed_loop.sh
 
+  # real-robot closed-loop launcher
+  NAVILA_MODE=real HOLOSOMA_INTERFACE=enp4s0 bash test/launch_navila_closed_loop.sh
+
   # manual console only
   bash test/run_navila_manual_console.sh
 
   # client only
   bash test/run_navila_mujoco_client.sh
 
-  # MuJoCo camera stream only
-  cd ${HOME}/robotics/holosoma && bash scripts/run_navila_mujoco_stream.sh
-
   # Holosoma policy only
-  bash test/run_holosoma_policy.sh
+  HOLOSOMA_INTERFACE=enp4s0 bash test/run_holosoma_policy.sh
 
 Control FIFO:
   $NAVILA_CONTROL_FIFO
@@ -45,6 +45,7 @@ Keyboard control:
   n      turn left ${TURN_DEG} degrees
   m      turn right ${TURN_DEG} degrees
   space  stop
+  =      emergency stop / stand still
   g      go / enable VLM automatic bridge execution
   p      pause / disable VLM automatic execution and send stop
   q      quit this console
@@ -53,6 +54,7 @@ Text commands are also supported:
   go
   pause
   stop
+  =
   move forward 25 centimeters
   move backward 25 centimeters
   move left 20 centimeters
@@ -94,7 +96,7 @@ print_help() {
 Commands:
   Arrow keys: ↑/↓/←/→ translate by ${STEP_CM} cm
   n / m: turn left/right by ${TURN_DEG} deg
-  space: stop
+  space / =: stop immediately and stand still
   g: go
   p: pause
   q: quit
@@ -103,6 +105,7 @@ Text commands:
   go
   pause
   stop
+  =
   move forward 25 centimeters
   move backward 25 centimeters
   move left 20 centimeters
@@ -162,7 +165,7 @@ handle_key() {
         p)
             send_cmd "pause" || true
             ;;
-        space)
+        stop)
             send_cmd "stop" || true
             ;;
         q)
@@ -175,8 +178,6 @@ handle_key() {
     esac
 }
 
-# Read one key at a time so arrow keys can be used directly.
-# Press ':' to enter a full text command if needed.
 while true; do
     printf "navila-key> "
     IFS= read -rsn1 key || break
@@ -197,7 +198,8 @@ while true; do
         "m") handle_key m ;;
         "g") handle_key g ;;
         "p") handle_key p ;;
-        " ") handle_key space ;;
+        " ") handle_key stop ;;
+        "=") handle_key stop ;;
         "q") handle_key q ;;
         "h") handle_key h ;;
         ":")
@@ -206,7 +208,7 @@ while true; do
             ;;
         *)
             echo "[manual-console] key not mapped: '$key'"
-            echo "[manual-console] use arrows, n/m, space, g, p, h, q, or ':' for text command."
+            echo "[manual-console] use arrows, n/m, space/=, g, p, h, q, or ':' for text command."
             ;;
     esac
 done
