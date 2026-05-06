@@ -6,7 +6,7 @@ DEX_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 NAVILA_MODE="${NAVILA_MODE:-sim}"   # sim | real
 NAVILA_NO_VLM="${NAVILA_NO_VLM:-1}" # 1 = skip VLM inference, manual control only
-NAVILA_CLIENT_WAIT_OK="${NAVILA_CLIENT_WAIT_OK:-1}"
+NAVILA_CLIENT_WAIT_OK="${NAVILA_CLIENT_WAIT_OK:-0}" # 1 = run a client script that waits for "OK" input before starting the main loop, for better terminal output control during demos
 HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/holosoma}"
 VLM_HOST="${VLM_HOST:-100.110.59.37}"
 VLM_PORT="${VLM_PORT:-54321}"

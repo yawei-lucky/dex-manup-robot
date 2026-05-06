@@ -11,7 +11,7 @@ source /opt/ros/humble/setup.bash
 
 EXTRA_ARGS=("$@")
 WAIT_FOR_SUBSCRIBERS_ARGS=()
-if [ "${NAVILA_WAIT_FOR_SUBSCRIBERS:-0}" = "1" ]; then
+if [ "${NAVILA_WAIT_FOR_SUBSCRIBERS:-1}" = "1" ]; then
   WAIT_FOR_SUBSCRIBERS_ARGS=(
     --wait-for-subscribers
     --subscriber-wait-timeout "${NAVILA_SUBSCRIBER_WAIT_TIMEOUT:-30.0}"
