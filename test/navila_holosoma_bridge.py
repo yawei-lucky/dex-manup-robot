@@ -296,10 +296,13 @@ class ActionExecutor:
         self._mode = None
         self._mode_lock = threading.Lock()
 
-    def bootstrap_to_stand(self) -> None:
-        print("[bootstrap] init -> start -> stand", flush=True)
-        self.backend.init_pose()
-        time.sleep(1.0)
+    def bootstrap_to_stand(self, skip_init_pose: bool = False) -> None:
+        if skip_init_pose:
+            print("[bootstrap] start -> stand (skipping init_pose)", flush=True)
+        else:
+            print("[bootstrap] init -> start -> stand", flush=True)
+            self.backend.init_pose()
+            time.sleep(1.0)
         self.backend.start_policy()
         with self._mode_lock:
             self._policy_started = True
@@ -434,6 +437,7 @@ def main() -> int:
     parser.add_argument("--wait-for-subscribers", action="store_true", help="Wait for Holosoma ROS2 subscribers before bootstrap")
     parser.add_argument("--subscriber-wait-timeout", type=float, default=30.0, help="Seconds to wait for ROS2 subscribers")
     parser.add_argument("--skip-init", action="store_true", help="Skip initialization if robot is already prepared")
+    parser.add_argument("--no-init-pose", action="store_true", help="Skip init_pose step during bootstrap (use when restarting client while robot is already standing)")
     args = parser.parse_args()
 
     backend = build_backend(args)
@@ -449,7 +453,7 @@ def main() -> int:
     if args.bootstrap_stand and not args.skip_init and not args.dry_run:
         if args.wait_for_subscribers:
             backend.wait_until_ready(args.subscriber_wait_timeout)
-        executor.bootstrap_to_stand()
+        executor.bootstrap_to_stand(skip_init_pose=args.no_init_pose)
 
     if not args.stdin:
         parser.print_help()
