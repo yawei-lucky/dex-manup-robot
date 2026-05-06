@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Preemptible NaVILA-style mid-level action adapter for Holosoma.
+"""NaVILA-style mid-level action adapter for Holosoma.
 
 This bridge converts simple text commands into ROS2 velocity/state commands for
-Holosoma. It is intentionally preemptible: when a new command arrives on stdin,
-the currently executing motion is interrupted and the newest command takes over.
-
-Supported stdin commands include:
+Holosoma. Supported stdin commands include:
   move forward 25 centimeters
   move backward 25 centimeters
   move left 20 centimeters
@@ -121,6 +118,9 @@ class NavilaTextParser:
 
 
 class BackendBase:
+    def wait_until_ready(self, timeout_sec: float = 0.0) -> bool:
+        return True
+
     def start_policy(self) -> None:
         raise NotImplementedError
 
@@ -189,6 +189,8 @@ class HolosomaRos2Backend(BackendBase):
         self._TwistStamped = TwistStamped
         self._String = String
         self._pub_lock = threading.Lock()
+        self.cmd_vel_topic = cmd_vel_topic
+        self.state_topic = state_topic
 
         if not self._rclpy.ok():
             self._rclpy.init(args=None)
@@ -196,6 +198,33 @@ class HolosomaRos2Backend(BackendBase):
         self.cmd_pub = self.node.create_publisher(TwistStamped, cmd_vel_topic, 10)
         self.state_pub = self.node.create_publisher(String, state_topic, 10)
         self._last_state_text = None
+
+    def wait_until_ready(self, timeout_sec: float = 0.0) -> bool:
+        if timeout_sec <= 0:
+            return True
+        print(
+            "[ros2] waiting for Holosoma subscribers "
+            f"cmd_vel={self.cmd_vel_topic}, state={self.state_topic}, timeout={timeout_sec:.1f}s",
+            flush=True,
+        )
+        deadline = time.time() + timeout_sec
+        last_report = 0.0
+        while time.time() < deadline:
+            self._rclpy.spin_once(self.node, timeout_sec=0.05)
+            cmd_subs = self.cmd_pub.get_subscription_count()
+            state_subs = self.state_pub.get_subscription_count()
+            if cmd_subs > 0 and state_subs > 0:
+                print(
+                    f"[ros2] Holosoma subscribers ready: cmd_vel={cmd_subs}, state={state_subs}",
+                    flush=True,
+                )
+                return True
+            now = time.time()
+            if now - last_report > 1.0:
+                print(f"[ros2] waiting... cmd_vel_subs={cmd_subs}, state_subs={state_subs}", flush=True)
+                last_report = now
+        print("[ros2] subscriber wait timed out; continuing anyway", flush=True)
+        return False
 
     def _publish_state(self, text: str, force: bool = False) -> None:
         with self._pub_lock:
@@ -402,6 +431,8 @@ def main() -> int:
     parser.add_argument("--publish-hz", type=float, default=10.0, help="How often to republish cmd_vel during motion")
     parser.add_argument("--settle-sec", type=float, default=0.4, help="Stand-and-zero hold after each action")
     parser.add_argument("--bootstrap-stand", action="store_true", help="Run init->start->stand at startup")
+    parser.add_argument("--wait-for-subscribers", action="store_true", help="Wait for Holosoma ROS2 subscribers before bootstrap")
+    parser.add_argument("--subscriber-wait-timeout", type=float, default=30.0, help="Seconds to wait for ROS2 subscribers")
     parser.add_argument("--skip-init", action="store_true", help="Skip initialization if robot is already prepared")
     args = parser.parse_args()
 
@@ -416,6 +447,8 @@ def main() -> int:
     text_parser = NavilaTextParser()
 
     if args.bootstrap_stand and not args.skip_init and not args.dry_run:
+        if args.wait_for_subscribers:
+            backend.wait_until_ready(args.subscriber_wait_timeout)
         executor.bootstrap_to_stand()
 
     if not args.stdin:

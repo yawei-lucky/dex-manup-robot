@@ -103,18 +103,25 @@ class BridgeProcess:
         try:
             if self.proc.stdin is not None:
                 try:
+                    print("[gate] shutdown: sending stop before closing bridge", flush=True)
+                    self.proc.stdin.write("stop\n")
+                    self.proc.stdin.flush()
+                    time.sleep(0.3)
                     self.proc.stdin.close()
                 except BrokenPipeError:
                     pass
         finally:
             try:
-                self.proc.terminate()
                 self.proc.wait(timeout=3)
             except Exception:
                 try:
-                    self.proc.kill()
+                    self.proc.terminate()
+                    self.proc.wait(timeout=3)
                 except Exception:
-                    pass
+                    try:
+                        self.proc.kill()
+                    except Exception:
+                        pass
 
 
 def stdin_reader(out_queue: "queue.Queue[tuple[str, str]]") -> None:

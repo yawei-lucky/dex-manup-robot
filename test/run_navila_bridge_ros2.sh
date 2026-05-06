@@ -10,6 +10,13 @@ cd "$DEX_ROOT"
 source /opt/ros/humble/setup.bash
 
 EXTRA_ARGS=("$@")
+WAIT_FOR_SUBSCRIBERS_ARGS=()
+if [ "${NAVILA_WAIT_FOR_SUBSCRIBERS:-0}" = "1" ]; then
+  WAIT_FOR_SUBSCRIBERS_ARGS=(
+    --wait-for-subscribers
+    --subscriber-wait-timeout "${NAVILA_SUBSCRIBER_WAIT_TIMEOUT:-30.0}"
+  )
+fi
 
 # Keep bridge logs readable in the client pane:
 # - print every non-cmd_vel line
@@ -23,6 +30,7 @@ exec /usr/bin/python3 test/navila_holosoma_bridge.py \
   --angular-speed-degps "${NAVILA_ANGULAR_SPEED_DEGPS:-60.0}" \
   --publish-hz "${NAVILA_PUBLISH_HZ:-10.0}" \
   --settle-sec "${NAVILA_SETTLE_SEC:-0.4}" \
+  "${WAIT_FOR_SUBSCRIBERS_ARGS[@]}" \
   "${EXTRA_ARGS[@]}" \
   2>&1 | awk '
     /\[ros2\] cmd_vel/ {

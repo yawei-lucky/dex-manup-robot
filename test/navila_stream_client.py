@@ -64,11 +64,14 @@ class BridgeWriter:
                     pass
         finally:
             try:
-                self.proc.terminate()
                 self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=3)
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait(timeout=3)
             except ProcessLookupError:
                 pass
 
