@@ -20,14 +20,13 @@ from __future__ import annotations
 
 import argparse
 import math
-import queue
 import re
 import sys
 import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 
 class ActionType(str, Enum):
@@ -320,41 +319,34 @@ class ActionExecutor:
         self.ensure_stand()
         self.backend.zero_velocity()
 
-    def hold_stand(self, duration: float | None = None, cancel_event: Optional[threading.Event] = None) -> None:
+    def hold_stand(self, duration: float | None = None) -> None:
         self.ensure_stand()
         hold = self.settle_sec if duration is None else max(0.0, duration)
         end_t = time.time() + hold
         while time.time() < end_t:
-            if cancel_event is not None and cancel_event.is_set():
-                return
             self.backend.zero_velocity()
-            time.sleep(0.05)
+            time.sleep(0.1)
 
-    def _stream_velocity(self, vx: float, vy: float, wz: float, duration: float, cancel_event: threading.Event) -> None:
+    def _stream_velocity(self, vx: float, vy: float, wz: float, duration: float) -> None:
         self.ensure_walk()
         dt = 1.0 / max(1e-6, self.publish_hz)
         end_t = time.time() + max(0.0, duration)
         while time.time() < end_t:
-            if cancel_event.is_set():
-                print("[exec] motion interrupted", flush=True)
-                break
             self.backend.send_velocity(vx, vy, wz)
             time.sleep(dt)
         self.backend.zero_velocity()
-        if not cancel_event.is_set():
-            self.hold_stand(self.settle_sec, cancel_event=cancel_event)
+        self.hold_stand(self.settle_sec)
 
-    def run_actions(self, actions: Iterable[MidLevelAction], cancel_event: threading.Event) -> None:
+    def run_actions(self, actions: Iterable[MidLevelAction]) -> None:
         for action in actions:
-            if cancel_event.is_set():
-                break
-            self.run_action(action, cancel_event)
+            self.run_action(action)
 
-    def run_action(self, action: MidLevelAction, cancel_event: threading.Event) -> None:
+    def run_action(self, action: MidLevelAction) -> None:
         print(f"[exec] {action}", flush=True)
 
         if action.action == ActionType.STOP:
-            self.immediate_stop()
+            self.backend.zero_velocity()
+            self.hold_stand(self.settle_sec)
             return
 
         if action.action in {
@@ -365,21 +357,21 @@ class ActionExecutor:
             ActionType.DONE,
         }:
             self.backend.execute_manip_action(action)
-            self.hold_stand(0.6, cancel_event=cancel_event)
+            self.hold_stand(0.6)
             return
 
         if action.action in {ActionType.MOVE_FORWARD, ActionType.MOVE_BACKWARD}:
             distance = max(0.0, action.value)
             sign = 1.0 if action.action == ActionType.MOVE_FORWARD else -1.0
             duration = distance / max(1e-6, self.linear_speed_mps)
-            self._stream_velocity(sign * self.linear_speed_mps, 0.0, 0.0, duration, cancel_event)
+            self._stream_velocity(sign * self.linear_speed_mps, 0.0, 0.0, duration)
             return
 
         if action.action in {ActionType.MOVE_LEFT, ActionType.MOVE_RIGHT}:
             distance = max(0.0, action.value)
             sign = 1.0 if action.action == ActionType.MOVE_LEFT else -1.0
             duration = distance / max(1e-6, self.linear_speed_mps)
-            self._stream_velocity(0.0, sign * self.linear_speed_mps, 0.0, duration, cancel_event)
+            self._stream_velocity(0.0, sign * self.linear_speed_mps, 0.0, duration)
             return
 
         if action.action in {ActionType.TURN_LEFT, ActionType.TURN_RIGHT}:
@@ -387,53 +379,10 @@ class ActionExecutor:
             sign = 1.0 if action.action == ActionType.TURN_LEFT else -1.0
             wz_radps = math.radians(sign * self.angular_speed_degps)
             duration = degrees / max(1e-6, self.angular_speed_degps)
-            self._stream_velocity(0.0, 0.0, wz_radps, duration, cancel_event)
+            self._stream_velocity(0.0, 0.0, wz_radps, duration)
             return
 
         raise ValueError(f"Unsupported action: {action.action}")
-
-
-class PreemptiveActionRunner:
-    def __init__(self, executor: ActionExecutor) -> None:
-        self.executor = executor
-        self._cond = threading.Condition()
-        self._latest_actions: Optional[List[MidLevelAction]] = None
-        self._latest_raw = ""
-        self._cancel_event = threading.Event()
-        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
-        self._worker.start()
-
-    def submit(self, actions: List[MidLevelAction], raw_text: str) -> None:
-        if not actions:
-            return
-        with self._cond:
-            self._cancel_event.set()
-            self._latest_actions = actions
-            self._latest_raw = raw_text
-            self._cond.notify()
-        if any(a.action == ActionType.STOP for a in actions):
-            # Do not wait for worker loop; publish stop immediately from stdin thread.
-            self.executor.immediate_stop()
-
-    def _worker_loop(self) -> None:
-        while True:
-            with self._cond:
-                while self._latest_actions is None:
-                    self._cond.wait()
-                actions = self._latest_actions
-                raw = self._latest_raw
-                self._latest_actions = None
-                self._cancel_event = threading.Event()
-                cancel_event = self._cancel_event
-            print(f"[runner] executing latest command: {raw}", flush=True)
-            try:
-                self.executor.run_actions(actions, cancel_event)
-            except Exception as exc:
-                print(f"[runner] action execution failed: {exc}", flush=True)
-                try:
-                    self.executor.immediate_stop()
-                except Exception as stop_exc:
-                    print(f"[runner] immediate stop after failure failed: {stop_exc}", flush=True)
 
 
 def build_backend(args: argparse.Namespace) -> BackendBase:
@@ -443,7 +392,7 @@ def build_backend(args: argparse.Namespace) -> BackendBase:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Preemptible NaVILA-style middle adapter for Holosoma")
+    parser = argparse.ArgumentParser(description="NaVILA-style middle adapter for Holosoma")
     parser.add_argument("--dry-run", action="store_true", help="Print commands instead of publishing ROS2 topics")
     parser.add_argument("--stdin", action="store_true", help="Read one text command per line from stdin")
     parser.add_argument("--cmd-vel-topic", type=str, default="/cmd_vel")
@@ -473,7 +422,6 @@ def main() -> int:
         parser.print_help()
         return 0
 
-    runner = PreemptiveActionRunner(executor)
     print("Enter commands, e.g. 'move forward 20 centimeters', 'turn left 15 degrees', 'stop', '='. Ctrl-D to quit.", flush=True)
     for line in sys.stdin:
         line = line.strip()
@@ -484,7 +432,7 @@ def main() -> int:
         except Exception as exc:
             print(f"[parse] unsupported command dropped: {line} ({exc})", flush=True)
             continue
-        runner.submit(actions, line)
+        executor.run_actions(actions)
 
     print("[bridge] stdin closed; stopping robot", flush=True)
     executor.immediate_stop()

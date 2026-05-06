@@ -19,6 +19,13 @@ from typing import Deque, List, Optional
 from PIL import Image
 
 
+class ImageWindowNotReady(RuntimeError):
+    def __init__(self, path: Path, exc: OSError) -> None:
+        self.path = path
+        self.original_error = exc
+        super().__init__(f"Image is not ready: {path} ({exc})")
+
+
 class BridgeWriter:
     def __init__(self, bridge_cmd: Optional[str]) -> None:
         self.bridge_cmd = bridge_cmd
@@ -73,7 +80,14 @@ def encode_image_to_base64(image: Image.Image) -> str:
 
 
 def load_images(paths: List[Path]) -> List[Image.Image]:
-    return [Image.open(p).convert("RGB") for p in paths]
+    images: List[Image.Image] = []
+    for path in paths:
+        try:
+            with Image.open(path) as image:
+                images.append(image.convert("RGB").copy())
+        except OSError as exc:
+            raise ImageWindowNotReady(path, exc) from exc
+    return images
 
 
 def sample_to_8_frames(images: List[Image.Image]) -> List[Image.Image]:
@@ -232,9 +246,21 @@ def _natural_key(path: Path):
 
 
 def list_ordered_image_paths(images_dir: Path, pattern: str, sort_by: str) -> List[Path]:
-    paths = [p for p in images_dir.glob(pattern) if p.is_file()]
+    paths: List[Path] = []
+    mtimes: dict[Path, int] = {}
+    for path in images_dir.glob(pattern):
+        if path.name.startswith("."):
+            continue
+        try:
+            if not path.is_file():
+                continue
+            mtimes[path] = path.stat().st_mtime_ns
+        except OSError:
+            continue
+        paths.append(path)
+
     if sort_by == "mtime":
-        paths.sort(key=lambda p: (p.stat().st_mtime_ns, p.name))
+        paths.sort(key=lambda p: (mtimes[p], p.name))
     else:
         paths.sort(key=_natural_key)
     return paths
@@ -318,6 +344,8 @@ def main() -> int:
     parser.add_argument("--save-window-dir", type=Path, default=None, help="Optional directory to save each 8-frame window sent to the server")
     parser.add_argument("--save-window-manifest", type=Path, default=None, help="Optional JSONL file that records the ordered image paths for every request")
     parser.add_argument("--verbose-window-log", action="store_true", help="Print every image path in the 8-frame window. By default only a one-line window summary is printed.")
+    parser.add_argument("--no-vlm", action="store_true", help="Skip VLM inference; images are still collected and bridge/manual control work normally")
+    parser.add_argument("--ignore-existing", action="store_true", help="In sequential mode, ignore images already present at startup and wait for fresh stream frames")
     args = parser.parse_args()
 
     if not args.images_dir.exists() or not args.images_dir.is_dir():
@@ -334,6 +362,15 @@ def main() -> int:
     seen_paths: set[str] = set()
     sequential_buffer: Deque[Path] = deque(maxlen=args.keep_last)
     request_index = 0
+
+    if args.ingest_mode == "sequential" and args.ignore_existing:
+        existing_paths = list_ordered_image_paths(args.images_dir, args.pattern, args.sort_by)
+        seen_paths.update(str(path.resolve()) for path in existing_paths)
+        if existing_paths:
+            print(
+                f"[startup] ignoring {len(existing_paths)} existing images; waiting for fresh stream frames",
+                flush=True,
+            )
 
     try:
         while True:
@@ -365,6 +402,25 @@ def main() -> int:
                 time.sleep(args.interval_sec)
                 continue
 
+            try:
+                images = load_images(image_paths)
+            except ImageWindowNotReady as exc:
+                last_signature = None
+                if args.ingest_mode == "sequential":
+                    sequential_buffer = deque(
+                        (path for path in sequential_buffer if path.exists() and path != exc.path),
+                        maxlen=args.keep_last,
+                    )
+                print(
+                    "[wait] image window changed while loading "
+                    f"({exc.path.name}: {exc.original_error.__class__.__name__}); retrying",
+                    flush=True,
+                )
+                if args.once:
+                    return 1
+                time.sleep(args.interval_sec)
+                continue
+
             last_signature = signature
             request_index += 1
             log_and_save_window(
@@ -374,34 +430,37 @@ def main() -> int:
                 request_index,
                 verbose_window_log=args.verbose_window_log,
             )
-            images = load_images(image_paths)
             images = sample_to_8_frames(images)
 
-            _print_separator("vlm", request_index)
-            raw_output = send_request(args.host, args.port, images, instruction)
-            target_side = extract_target_side(raw_output)
-            final_cmd = normalize_navila_output(raw_output)
-            display_cmd = f"command: {final_cmd}"
+            if args.no_vlm:
+                _print_separator("vlm", request_index)
+                print("[no-vlm] skipping inference — use manual control console", flush=True)
+            else:
+                _print_separator("vlm", request_index)
+                raw_output = send_request(args.host, args.port, images, instruction)
+                target_side = extract_target_side(raw_output)
+                final_cmd = normalize_navila_output(raw_output)
+                display_cmd = f"command: {final_cmd}"
 
-            if args.raw:
-                print("[raw]", flush=True)
-                print(raw_output, flush=True)
-            if target_side is not None:
-                print(f"[target_side] {target_side}", flush=True)
-            print(display_cmd, flush=True)
+                if args.raw:
+                    print("[raw]", flush=True)
+                    print(raw_output, flush=True)
+                if target_side is not None:
+                    print(f"[target_side] {target_side}", flush=True)
+                print(display_cmd, flush=True)
 
-            should_send = True
-            if args.dedupe and final_cmd == last_sent_cmd:
-                should_send = False
+                should_send = True
+                if args.dedupe and final_cmd == last_sent_cmd:
+                    should_send = False
 
-            if should_send:
-                _print_separator("bridge", request_index)
-                print(f"[bridge] send: {final_cmd}", flush=True)
-                bridge.send(final_cmd)
-                last_sent_cmd = final_cmd
-            elif args.dedupe:
-                _print_separator("bridge", request_index)
-                print(f"[bridge] skipped duplicate command: {final_cmd}", flush=True)
+                if should_send:
+                    _print_separator("bridge", request_index)
+                    print(f"[bridge] send: {final_cmd}", flush=True)
+                    bridge.send(final_cmd)
+                    last_sent_cmd = final_cmd
+                elif args.dedupe:
+                    _print_separator("bridge", request_index)
+                    print(f"[bridge] skipped duplicate command: {final_cmd}", flush=True)
 
             if args.once:
                 return 0

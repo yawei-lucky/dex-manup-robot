@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEX_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 NAVILA_MODE="${NAVILA_MODE:-sim}"   # sim | real
+NAVILA_NO_VLM="${NAVILA_NO_VLM:-1}" # 1 = skip VLM inference, manual control only
+NAVILA_CLIENT_WAIT_OK="${NAVILA_CLIENT_WAIT_OK:-1}"
 HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/holosoma}"
 VLM_HOST="${VLM_HOST:-100.110.59.37}"
 VLM_PORT="${VLM_PORT:-54321}"
@@ -39,6 +41,12 @@ if [ "$RUN_CAMERA_STREAM" = "1" ]; then
 else
     CAMERA_COMMAND="cd \"$DEX_ROOT\"; echo \"[Camera Stream Disabled]\"; echo \"NAVILA_MODE=real, so MuJoCo camera stream is not started.\"; echo \"Start your real camera/image stream separately if needed.\"; exec bash"
     CAMERA_TITLE="Camera Stream Disabled"
+fi
+
+if [ "$NAVILA_CLIENT_WAIT_OK" = "1" ]; then
+    CLIENT_SCRIPT="test/run_navila_client_wait_ok.sh"
+else
+    CLIENT_SCRIPT="test/run_navila_mujoco_client.sh"
 fi
 
 cat > "$LAYOUT_FILE" <<EOF
@@ -94,7 +102,7 @@ cat > "$LAYOUT_FILE" <<EOF
       parent = hpaned_bottom
       order = 0
       title = NaVILA Client + Bridge
-      command = bash -lc 'cd "$DEX_ROOT"; echo "[NaVILA Client + Bridge]"; echo "NAVILA_MODE=$NAVILA_MODE VLM_HOST=$VLM_HOST VLM_PORT=$VLM_PORT bash test/run_navila_mujoco_client.sh"; NAVILA_MODE="$NAVILA_MODE" VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" NAVILA_CONTROL_FIFO="$NAVILA_CONTROL_FIFO" NAVILA_CLIENT_INTERVAL_SEC="$NAVILA_CLIENT_INTERVAL_SEC" NAVILA_LINEAR_SPEED="$NAVILA_LINEAR_SPEED" NAVILA_ANGULAR_SPEED_DEGPS="$NAVILA_ANGULAR_SPEED_DEGPS" bash test/run_navila_mujoco_client.sh; exec bash'
+      command = bash -lc 'cd "$DEX_ROOT"; echo "[NaVILA Client + Bridge]"; echo "NAVILA_MODE=$NAVILA_MODE NAVILA_NO_VLM=$NAVILA_NO_VLM VLM_HOST=$VLM_HOST VLM_PORT=$VLM_PORT bash $CLIENT_SCRIPT"; NAVILA_MODE="$NAVILA_MODE" NAVILA_NO_VLM="$NAVILA_NO_VLM" VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" NAVILA_CONTROL_FIFO="$NAVILA_CONTROL_FIFO" NAVILA_CLIENT_INTERVAL_SEC="$NAVILA_CLIENT_INTERVAL_SEC" NAVILA_LINEAR_SPEED="$NAVILA_LINEAR_SPEED" NAVILA_ANGULAR_SPEED_DEGPS="$NAVILA_ANGULAR_SPEED_DEGPS" bash "$CLIENT_SCRIPT"; exec bash'
 
     [[[terminal_manual]]]
       type = Terminal
@@ -107,6 +115,9 @@ EOF
 
 echo "[NAVILA_CLOSED_LOOP] DEX_ROOT=$DEX_ROOT"
 echo "[NAVILA_CLOSED_LOOP] NAVILA_MODE=$NAVILA_MODE"
+echo "[NAVILA_CLOSED_LOOP] NAVILA_NO_VLM=$NAVILA_NO_VLM"
+echo "[NAVILA_CLOSED_LOOP] NAVILA_CLIENT_WAIT_OK=$NAVILA_CLIENT_WAIT_OK"
+echo "[NAVILA_CLOSED_LOOP] CLIENT_SCRIPT=$CLIENT_SCRIPT"
 echo "[NAVILA_CLOSED_LOOP] HOLOSOMA_ROOT=$HOLOSOMA_ROOT"
 echo "[NAVILA_CLOSED_LOOP] VLM=$VLM_HOST:$VLM_PORT"
 echo "[NAVILA_CLOSED_LOOP] HOLOSOMA_INTERFACE=$HOLOSOMA_INTERFACE"
