@@ -493,6 +493,13 @@ def main() -> int:
                 if drained:
                     print(f"[stop] drained {drained} queued command(s)", flush=True)
             else:
+                # Preempt: interrupt current motion and drop stale queued commands
+                executor._stop_event.set()
+                while True:
+                    try:
+                        cmd_queue.get_nowait()
+                    except queue.Empty:
+                        break
                 cmd_queue.put(line)
         cmd_queue.put(None)  # EOF sentinel
 

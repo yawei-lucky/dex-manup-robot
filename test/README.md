@@ -103,11 +103,41 @@ Run in any terminal. Requires your password once. After that, policy startup is 
 
 ---
 
-## Speed Parameters
+## Motion Parameters
 
-| Parameter | Sim default | Real default |
+All parameters are set via environment variables before launching the client or standalone bridge.
+
+### Keyboard step size (manual console)
+
+| Variable | Default | Description |
 |---|---|---|
-| Linear speed | `0.45 m/s` | `0.20 m/s` |
-| Angular speed | `60.0 deg/s` | `30.0 deg/s` |
-| Publish frequency | `10.0 Hz` | `10.0 Hz` |
-| Settle time | `0.4 s` | `0.4 s` |
+| `NAVILA_MANUAL_STEP_CM` | `20` | Distance per arrow key press (cm) |
+| `NAVILA_MANUAL_TURN_DEG` | `15` | Angle per 1/0 key press (degrees) |
+
+```bash
+# Example: larger steps
+NAVILA_MANUAL_STEP_CM=50 NAVILA_MANUAL_TURN_DEG=30 bash test/launch_navila_closed_loop.sh
+```
+
+### Bridge speed and timing
+
+| Variable | Sim default | Real default | Description |
+|---|---|---|---|
+| `NAVILA_LINEAR_SPEED` | `0.45` | `0.20` | Linear speed (m/s) |
+| `NAVILA_ANGULAR_SPEED_DEGPS` | `60.0` | `30.0` | Angular speed (deg/s) |
+| `NAVILA_PUBLISH_HZ` | `10.0` | `10.0` | cmd_vel publish rate (Hz) |
+| `NAVILA_SETTLE_SEC` | `0.4` | `0.4` | Pause after motion before next command (s) |
+
+```bash
+# Example: slower real robot
+NAVILA_MODE=real HOLOSOMA_INTERFACE=enp4s0 \
+  NAVILA_LINEAR_SPEED=0.15 NAVILA_ANGULAR_SPEED_DEGPS=20 \
+  bash test/launch_navila_closed_loop.sh
+```
+
+Step distance and duration are computed from speed:
+
+```
+duration = distance_m / linear_speed        # e.g. 50cm / 0.45m/s = 1.11s
+duration = angle_deg / angular_speed_degps  # e.g. 30deg / 60deg/s = 0.5s
+```
