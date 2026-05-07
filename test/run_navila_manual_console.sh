@@ -17,6 +17,10 @@ cat <<EOF
  NaVILA Manual Control Console
 ============================================================
 
+Simulator (run first, in a separate terminal):
+
+  cd ~/robotics/holosoma && bash scripts/run_navila_mujoco_stream.sh
+
 Launch commands:
 
   # one-key closed-loop (sim, no VLM, default)
@@ -50,27 +54,22 @@ Keyboard control:
   ↓      move backward ${STEP_CM} centimeters
   ←      move left ${STEP_CM} centimeters
   →      move right ${STEP_CM} centimeters
-  n      turn left ${TURN_DEG} degrees
-  m      turn right ${TURN_DEG} degrees
-  space  stop
-  =      emergency stop / stand still
+  1      turn left ${TURN_DEG} degrees
+  0      turn right ${TURN_DEG} degrees
+  space  stop / disable VLM and stand still
   g      go / enable VLM automatic bridge execution
-  p      pause / disable VLM automatic execution and send stop
   q      quit this console
 
-Text commands are also supported:
+Text commands (press ':' then type command and Enter):
   go
-  pause
   stop
-  =
-  move forward 25 centimeters
-  move backward 25 centimeters
-  move left 20 centimeters
-  move right 20 centimeters
-  turn left 15 degrees
-  turn right 15 degrees
-  help
-  quit
+  move forward <N> centimeters
+  move backward <N> centimeters
+  move left <N> centimeters
+  move right <N> centimeters
+  turn left <N> degrees
+  turn right <N> degrees
+  (translation unit: centimeters; rotation unit: degrees)
 
 Notes:
   - Client must be running before commands can reach the bridge gate.
@@ -103,17 +102,14 @@ print_help() {
     cat <<EOF
 Commands:
   Arrow keys: ↑/↓/←/→ translate by ${STEP_CM} cm
-  n / m: turn left/right by ${TURN_DEG} deg
-  space / =: stop immediately and stand still
+  1 / 0: turn left/right by ${TURN_DEG} deg
+  space: stop immediately and stand still
   g: go
-  p: pause
   q: quit
 
-Text commands:
+Text commands (press ':' first):
   go
-  pause
   stop
-  =
   move forward 25 centimeters
   move backward 25 centimeters
   move left 20 centimeters
@@ -161,17 +157,14 @@ handle_key() {
         right)
             send_cmd "move right ${STEP_CM} centimeters" || true
             ;;
-        n)
+        1)
             send_cmd "turn left ${TURN_DEG} degrees" || true
             ;;
-        m)
+        0)
             send_cmd "turn right ${TURN_DEG} degrees" || true
             ;;
         g)
             send_cmd "go" || true
-            ;;
-        p)
-            send_cmd "pause" || true
             ;;
         stop)
             send_cmd "stop" || true
@@ -202,12 +195,10 @@ while true; do
                 *) echo "[manual-console] unknown escape key" ;;
             esac
             ;;
-        "n") handle_key n ;;
-        "m") handle_key m ;;
+        "1") handle_key 1 ;;
+        "0") handle_key 0 ;;
         "g") handle_key g ;;
-        "p") handle_key p ;;
         " ") handle_key stop ;;
-        "=") handle_key stop ;;
         "q") handle_key q ;;
         "h") handle_key h ;;
         ":")
@@ -216,7 +207,7 @@ while true; do
             ;;
         *)
             echo "[manual-console] key not mapped: '$key'"
-            echo "[manual-console] use arrows, n/m, space/=, g, p, h, q, or ':' for text command."
+            echo "[manual-console] use arrows, 1/0, space, g, h, q, or ':' then Enter for text command."
             ;;
     esac
 done

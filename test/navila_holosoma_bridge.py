@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import queue
 import re
 import sys
 import threading
@@ -295,6 +296,7 @@ class ActionExecutor:
         self._policy_started = False
         self._mode = None
         self._mode_lock = threading.Lock()
+        self._stop_event = threading.Event()
 
     def bootstrap_to_stand(self, skip_init_pose: bool = False) -> None:
         if skip_init_pose:
@@ -359,15 +361,25 @@ class ActionExecutor:
             self.backend.zero_velocity()
             time.sleep(0.1)
 
+    def emergency_stop(self) -> None:
+        self._stop_event.set()
+        self.backend.zero_velocity()
+        print("[stop] emergency stop", flush=True)
+
     def _stream_velocity(self, vx: float, vy: float, wz: float, duration: float) -> None:
+        self._stop_event.clear()
         self.ensure_walk()
         dt = 1.0 / max(1e-6, self.publish_hz)
         end_t = time.time() + max(0.0, duration)
         while time.time() < end_t:
+            if self._stop_event.is_set():
+                print("[stop] motion interrupted", flush=True)
+                break
             self.backend.send_velocity(vx, vy, wz)
             time.sleep(dt)
         self.backend.zero_velocity()
-        self.hold_stand(self.settle_sec)
+        if not self._stop_event.is_set():
+            self.hold_stand(self.settle_sec)
 
     def run_actions(self, actions: Iterable[MidLevelAction]) -> None:
         for action in actions:
@@ -459,11 +471,40 @@ def main() -> int:
         parser.print_help()
         return 0
 
-    print("Enter commands, e.g. 'move forward 20 centimeters', 'turn left 15 degrees', 'stop', '='. Ctrl-D to quit.", flush=True)
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
+    print("Enter commands, e.g. 'move forward 20 centimeters', 'turn left 15 degrees', 'stop'. Ctrl-D to quit.", flush=True)
+
+    _STOP_TOKENS = {"stop"}
+    cmd_queue: queue.Queue[str | None] = queue.Queue()
+
+    def _stdin_reader() -> None:
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+            if line in _STOP_TOKENS:
+                executor.emergency_stop()
+                drained = 0
+                while True:
+                    try:
+                        cmd_queue.get_nowait()
+                        drained += 1
+                    except queue.Empty:
+                        break
+                if drained:
+                    print(f"[stop] drained {drained} queued command(s)", flush=True)
+            else:
+                cmd_queue.put(line)
+        cmd_queue.put(None)  # EOF sentinel
+
+    threading.Thread(target=_stdin_reader, daemon=True).start()
+
+    while True:
+        try:
+            line = cmd_queue.get(timeout=0.1)
+        except queue.Empty:
             continue
+        if line is None:
+            break
         try:
             actions = text_parser.parse(line)
         except Exception as exc:

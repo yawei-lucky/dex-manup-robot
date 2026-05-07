@@ -89,6 +89,20 @@ Bootstrap sequence on bridge start (`--bootstrap-stand`):
 
 ---
 
+## One-Time Setup
+
+### Allow `ufw status` without password
+
+The Holosoma policy startup script calls `sudo ufw status` to check firewall state. Run this once to avoid the password prompt every time:
+
+```bash
+echo "kylin ALL=(ALL) NOPASSWD: /usr/sbin/ufw status" | sudo tee /etc/sudoers.d/kylin-ufw-status
+```
+
+Run in any terminal. Requires your password once. After that, policy startup is fully automatic.
+
+---
+
 ## Speed Parameters
 
 | Parameter | Sim default | Real default |
