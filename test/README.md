@@ -26,7 +26,7 @@ python scripts/vlm_server.py \
   --model_path ~/models/navila-llama3-8b-8f \
   --port 54321
 
-2: NAVILA_NO_VLM=0 VLM_HOST=<server-ip> VLM_PORT=54321 bash test/launch_navila_closed_loop.sh
+2: NAVILA_NO_VLM=0 bash test/launch_navila_closed_loop.sh
 
 # Real robot (no MuJoCo stream, slower speeds, real network interface)
 NAVILA_MODE=real HOLOSOMA_INTERFACE=enp4s0 bash test/launch_navila_closed_loop.sh
