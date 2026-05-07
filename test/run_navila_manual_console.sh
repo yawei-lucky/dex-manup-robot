@@ -17,22 +17,30 @@ cat <<EOF
  NaVILA Manual Control Console
 ============================================================
 
-Start / restart commands:
+Launch commands:
 
-  # full closed-loop split launcher
+  # one-key closed-loop (sim, no VLM, default)
   bash test/launch_navila_closed_loop.sh
 
-  # real-robot closed-loop launcher
+  # one-key closed-loop (sim, with VLM)
+  NAVILA_NO_VLM=0 VLM_HOST=<ip> VLM_PORT=54321 bash test/launch_navila_closed_loop.sh
+
+  # one-key closed-loop (real robot)
   NAVILA_MODE=real HOLOSOMA_INTERFACE=enp4s0 bash test/launch_navila_closed_loop.sh
 
-  # manual console only
-  bash test/run_navila_manual_console.sh
+  # standalone: policy only (for keyboard bridge testing)
+  HOLOSOMA_INTERFACE=lo bash test/run_holosoma_policy.sh
 
-  # client only
+  # standalone: bridge only with keyboard stdin (after policy is running)
+  bash test/run_navila_bridge_ros2.sh --bootstrap-stand --stdin
+
+Client restart commands:
+
+  # restart client (robot already standing — skip init_pose to avoid collapse)
+  NAVILA_NO_INIT_POSE=1 bash test/run_navila_mujoco_client.sh
+
+  # restart client (robot not standing — full bootstrap: init -> start -> stand)
   bash test/run_navila_mujoco_client.sh
-
-  # Holosoma policy only
-  HOLOSOMA_INTERFACE=enp4s0 bash test/run_holosoma_policy.sh
 
 Control FIFO:
   $NAVILA_CONTROL_FIFO
