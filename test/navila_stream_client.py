@@ -14,7 +14,7 @@ import sys
 import time
 from collections import deque
 from pathlib import Path
-from typing import Deque, List, Optional
+from typing import IO, Deque, List, Optional
 
 from PIL import Image
 
@@ -144,66 +144,39 @@ def _cleanup_text(text: str) -> str:
     return text
 
 
-def extract_target_side(text: str) -> Optional[str]:
-    cleaned = _cleanup_text(text)
+def extract_target_assessment(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Parse 'target_state: <position>, <distance>' from VLM output.
 
+    Returns (position, distance); either may be None if not found.
+    """
+    cleaned = _cleanup_text(text)
     m = re.search(
-        r"target_side\s*:\s*(left|right|center|not visible)",
+        r"target_(?:state|side)\s*:\s*(left|right|center|not\s+visible)"
+        r"(?:\s*,\s*(far\s+away|near|very\s+close))?",
         cleaned,
         re.IGNORECASE,
     )
-    if m:
-        return m.group(1).lower()
-
-    if "not visible" in cleaned:
-        return "not visible"
-    if re.search(r"\bon the left\b|\bleft side\b", cleaned):
-        return "left"
-    if re.search(r"\bon the right\b|\bright side\b", cleaned):
-        return "right"
-    if re.search(r"\bcenter\b|\bcentre\b|\bcentered\b|\bcentred\b", cleaned):
-        return "center"
-
-    return None
+    if not m:
+        return None, None
+    side = re.sub(r"\s+", " ", m.group(1).strip().lower())
+    dist = re.sub(r"\s+", " ", m.group(2).strip().lower()) if m.group(2) else None
+    return side, dist
 
 
-def normalize_navila_output(text: str) -> str:
-    cleaned = _cleanup_text(text)
-
-    stop_match = re.search(r"\bstop\b", cleaned, re.IGNORECASE)
-    turn_match = re.search(
-        r"\bturn\s+(left|right)\s+(?:by\s+)?([-+]?\d+(?:\.\d+)?)\s*(deg|degree|degrees)\b",
-        cleaned,
-        re.IGNORECASE,
-    )
-    move_match = re.search(
-        r"\b(?:move|moving)\s+forward\s+([-+]?\d+(?:\.\d+)?)\s*(cm|centimeter|centimeters|m|meter|meters)\b",
-        cleaned,
-        re.IGNORECASE,
-    )
-
-    if turn_match:
-        direction = turn_match.group(1).lower()
-        value = float(turn_match.group(2))
-        value = max(1.0, min(180.0, value))
-        value_str = f"{int(value)}" if value.is_integer() else f"{value:.1f}"
-        return f"turn {direction} {value_str} degrees"
-
-    if move_match:
-        value = float(move_match.group(1))
-        unit = move_match.group(2).lower()
-        if value <= 0:
+def action_from_assessment(side: Optional[str], dist: Optional[str]) -> str:
+    """Deterministically derive navigation action from VLM's position/distance assessment."""
+    if side == "not visible":
+        return "turn left 30 degrees"
+    if side == "left":
+        return "turn left 15 degrees"
+    if side == "right":
+        return "turn right 15 degrees"
+    if side == "center":
+        if dist in ("near", "very close"):
             return "stop"
-        if unit in {"cm", "centimeter", "centimeters"}:
-            value_str = f"{int(value)}" if value.is_integer() else f"{value:.1f}"
-            return f"move forward {value_str} centimeters"
-        value_str = f"{int(value)}" if value.is_integer() else f"{value:.2f}".rstrip("0").rstrip(".")
-        return f"move forward {value_str} meters"
+        return "move forward 20 centimeters"
+    return "move forward 20 centimeters"
 
-    if stop_match:
-        return "stop"
-
-    return "stop"
 
 
 def build_instruction(user_task: str) -> str:
@@ -271,6 +244,55 @@ def list_ordered_image_paths(images_dir: Path, pattern: str, sort_by: str) -> Li
 
 def get_latest_image_paths(images_dir: Path, pattern: str, keep_last: int, sort_by: str) -> List[Path]:
     return list_ordered_image_paths(images_dir, pattern, sort_by)[-keep_last:]
+
+
+_tty: Optional[IO[str]] = None
+_header_lines: int = 0
+
+
+def _setup_sticky_header(args: argparse.Namespace, instruction: str) -> None:
+    """Pin a header at the top of the terminal using ANSI scroll region.
+
+    Writes to /dev/tty so stdout (log file) is never polluted by escape codes.
+    """
+    global _tty, _header_lines
+    try:
+        _tty = io.open("/dev/tty", "w", encoding="utf-8")
+    except OSError:
+        return
+
+    cols, rows = shutil.get_terminal_size((80, 24))
+    sep = "─" * cols
+    task_line = instruction.splitlines()[0][: cols - 11]
+    lines = [
+        sep,
+        f"  Server : {args.host}:{args.port}   Images: {args.images_dir}",
+        f"  Task   : {task_line}",
+        sep,
+    ]
+    _header_lines = len(lines)
+
+    buf = ["\033[2J\033[H"]          # clear screen, cursor home
+    for line in lines:
+        buf.append(line + "\n")
+    buf.append(f"\033[{_header_lines + 1};{rows}r")  # scroll region below header
+    buf.append(f"\033[{rows};1H")                     # cursor to bottom of scroll region
+
+    _tty.write("".join(buf))
+    _tty.flush()
+
+
+def _teardown_sticky_header() -> None:
+    global _tty
+    if _tty is None:
+        return
+    try:
+        _tty.write("\033[r")   # reset scroll region to full screen
+        _tty.flush()
+        _tty.close()
+    except OSError:
+        pass
+    _tty = None
 
 
 def _print_separator(label: str, request_index: int) -> None:
@@ -355,6 +377,7 @@ def main() -> int:
         raise SystemExit(f"Invalid images directory: {args.images_dir}")
 
     instruction = load_instruction(args.task, args.prompt_json)
+    _setup_sticky_header(args, instruction)
     bridge = BridgeWriter(args.bridge_cmd)
     bridge.start()
 
@@ -441,8 +464,8 @@ def main() -> int:
             else:
                 _print_separator("vlm", request_index)
                 raw_output = send_request(args.host, args.port, images, instruction)
-                target_side = extract_target_side(raw_output)
-                final_cmd = normalize_navila_output(raw_output)
+                target_side, distance = extract_target_assessment(raw_output)
+                final_cmd = action_from_assessment(target_side, distance)
                 display_cmd = f"command: {final_cmd}"
 
                 if args.raw:
@@ -450,6 +473,8 @@ def main() -> int:
                     print(raw_output, flush=True)
                 if target_side is not None:
                     print(f"[target_side] {target_side}", flush=True)
+                if distance is not None:
+                    print(f"[distance] {distance}", flush=True)
                 print(display_cmd, flush=True)
 
                 should_send = True
@@ -471,6 +496,7 @@ def main() -> int:
             time.sleep(args.interval_sec)
     finally:
         bridge.close()
+        _teardown_sticky_header()
 
 
 if __name__ == "__main__":

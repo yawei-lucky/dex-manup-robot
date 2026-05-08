@@ -27,7 +27,8 @@ class Decision:
     last_frame: Optional[str]
     raw_vlm: str
     target_state: Optional[str]  # parsed from target_state: in raw VLM text
-    target_side: Optional[str]   # from [target_side] extracted line
+    target_side: Optional[str]   # from [target_side] line
+    distance: Optional[str]      # from [distance] line
     command: Optional[str]
 
 
@@ -41,11 +42,12 @@ def parse_log(log_path: Path) -> List[Decision]:
     raw_lines: List[str] = []
     in_raw = False
     target_side: Optional[str] = None
+    distance: Optional[str] = None
     command: Optional[str] = None
 
     def flush() -> None:
         nonlocal req_idx, img_dir, first_frame, last_frame, raw_lines, in_raw
-        nonlocal target_side, command
+        nonlocal target_side, distance, command
         if req_idx is not None:
             raw_text = "\n".join(raw_lines).strip()
             ts: Optional[str] = None
@@ -60,6 +62,7 @@ def parse_log(log_path: Path) -> List[Decision]:
                 raw_vlm=raw_text,
                 target_state=ts,
                 target_side=target_side,
+                distance=distance,
                 command=command,
             ))
         req_idx = None
@@ -69,6 +72,7 @@ def parse_log(log_path: Path) -> List[Decision]:
         raw_lines = []
         in_raw = False
         target_side = None
+        distance = None
         command = None
 
     with log_path.open(encoding="utf-8", errors="replace") as f:
@@ -127,7 +131,13 @@ def parse_log(log_path: Path) -> List[Decision]:
                 target_side = m.group(1).strip()
                 continue
 
-            # Normalized command
+            # Distance assessment line
+            m = re.match(r"\[distance\] (.+)$", line)
+            if m:
+                distance = m.group(1).strip()
+                continue
+
+            # Final command
             m = re.match(r"command: (.+)$", line)
             if m:
                 command = m.group(1).strip()
@@ -261,10 +271,12 @@ def _build_step_html(
             frames_html = f'<div class="no-img-wide">images not found ({short_dir})</div>'
 
     meta_parts = []
-    if d.target_state:
+    if d.target_side:
+        meta_parts.append(f"position: {d.target_side}")
+    if d.distance:
+        meta_parts.append(f"distance: {d.distance}")
+    elif d.target_state and not d.target_side:
         meta_parts.append(f"target_state: {d.target_state}")
-    if d.target_side and d.target_side != d.target_state:
-        meta_parts.append(f"target_side: {d.target_side}")
     meta_html = (
         '<div class="meta">' + " &nbsp;|&nbsp; ".join(meta_parts) + "</div>"
         if meta_parts
