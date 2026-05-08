@@ -148,7 +148,7 @@ def parse_log(log_path: Path) -> List[Decision]:
 
 
 def _frame_num(name: str) -> Optional[int]:
-    m = re.match(r"frame_(\d+)", name)
+    m = re.match(r"[a-z]+_(\d+)", name)
     return int(m.group(1)) if m else None
 
 
