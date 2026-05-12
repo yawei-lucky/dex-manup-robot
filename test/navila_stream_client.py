@@ -164,7 +164,7 @@ def extract_target_assessment(text: str) -> tuple[Optional[str], Optional[str]]:
 
 
 def action_from_assessment(side: Optional[str], dist: Optional[str]) -> str:
-    """Deterministically derive navigation action from VLM's position/distance assessment."""
+    """Fallback navigation action derived purely from target_state when the model omits an action line."""
     if side == "not visible":
         return "turn left 30 degrees"
     if side == "left":
@@ -176,6 +176,108 @@ def action_from_assessment(side: Optional[str], dist: Optional[str]) -> str:
             return "stop"
         return "move forward 20 centimeters"
     return "move forward 20 centimeters"
+
+
+def command_from_model_action(model_dir: str, side: Optional[str], dist: Optional[str]) -> str:
+    """Trust the model's directional decision; let target_state inform only the magnitude."""
+    if model_dir == "stop":
+        return "stop"
+    if model_dir == "move_forward":
+        return "move forward 20 centimeters"
+    if model_dir in ("turn_left", "turn_right"):
+        # Wider sweep when searching (target lost), smaller correction when aligning to a visible target.
+        deg = 30 if side in (None, "not visible") else 15
+        verb = "turn left" if model_dir == "turn_left" else "turn right"
+        return f"{verb} {deg} degrees"
+    return "stop"
+
+
+def normalize_direction(text: Optional[str]) -> Optional[str]:
+    """Collapse any action phrase to a coarse direction category, ignoring numeric values."""
+    if not text:
+        return None
+    s = text.lower()
+    if "stop" in s:
+        return "stop"
+    if "turn" in s and "left" in s:
+        return "turn_left"
+    if "turn" in s and "right" in s:
+        return "turn_right"
+    if "forward" in s or "move" in s:
+        return "move_forward"
+    return None
+
+
+def extract_model_action(text: str) -> Optional[str]:
+    """Parse 'action: <action>' from VLM output and return its direction category."""
+    cleaned = _cleanup_text(text)
+    m = re.search(r"action\s*:\s*([^\n]+)", cleaned, re.IGNORECASE)
+    if not m:
+        return None
+    return normalize_direction(m.group(1))
+
+
+def extract_model_action_text(text: str) -> Optional[str]:
+    """Return an action string from the VLM output, untouched magnitude included.
+
+    Tries the structured 'action: <text>' format first; falls back to the raw
+    cleaned output when the model speaks navila's native free-form style
+    (e.g. "turn right 15 degrees.").
+    """
+    cleaned = _cleanup_text(text)
+    m = re.search(r"action\s*:\s*([^\n]+)", cleaned, re.IGNORECASE)
+    if m:
+        return m.group(1).strip().rstrip(".")
+    flat = cleaned.replace("\n", " ").strip().rstrip(".")
+    return flat or None
+
+
+_VLM_TURN_RE = re.compile(
+    r"turn\s+(?P<dir>left|right)\s+(?:by\s+)?(?P<val>[0-9]+(?:\.[0-9]+)?)\s*(?:deg(?:rees?)?|°)?",
+    re.IGNORECASE,
+)
+_VLM_MOVE_RE = re.compile(
+    r"(?:move|moving|go)\s+(?P<dir>forward|backward|back)\s+"
+    r"(?P<val>[0-9]+(?:\.[0-9]+)?)\s*(?P<unit>m|meter|meters|cm|centimeter|centimeters)?",
+    re.IGNORECASE,
+)
+_BRIDGE_DEFAULT_MAP = {
+    "turn_left":    "turn left 30 degrees",
+    "turn_right":   "turn right 30 degrees",
+    "move_forward": "move forward 25 centimeters",
+}
+
+
+def vlm_to_bridge_cmd(action_text: Optional[str]) -> str:
+    """Convert raw VLM action text into a bridge-parseable command string.
+
+    Preserves the magnitude the VLM outputs when present; falls back to
+    normalize_direction + fixed defaults when no numbers are found.
+    """
+    if not action_text:
+        return "stop"
+
+    s = action_text.lower()
+
+    if "stop" in s:
+        return "stop"
+
+    turn_m = _VLM_TURN_RE.search(s)
+    if turn_m:
+        return f"turn {turn_m.group('dir')} {turn_m.group('val')} degrees"
+
+    move_m = _VLM_MOVE_RE.search(s)
+    if move_m:
+        d = move_m.group("dir")
+        d = "backward" if d == "back" else d
+        val = move_m.group("val")
+        raw_unit = (move_m.group("unit") or "").lower()
+        unit = "centimeters" if raw_unit in ("cm", "centimeter", "centimeters") else "meters"
+        return f"move {d} {val} {unit}"
+
+    # No numeric value found — fall back to category + default magnitude
+    category = normalize_direction(action_text)
+    return _BRIDGE_DEFAULT_MAP.get(category or "", "stop")
 
 
 
@@ -385,6 +487,7 @@ def main() -> int:
 
     last_sent_cmd: Optional[str] = None
     last_signature: Optional[str] = None
+    last_displayed_dir: Optional[str] = None
     seen_paths: set[str] = set()
     sequential_buffer: Deque[Path] = deque(maxlen=args.keep_last)
     request_index = 0
@@ -462,33 +565,25 @@ def main() -> int:
                 _print_separator("vlm", request_index)
                 print("[no-vlm] skipping inference — use manual control console", flush=True)
             else:
-                _print_separator("vlm", request_index)
+                # Bare-bones path: trust the VLM's action line verbatim. No
+                # magnitude inference, no target_state-derived fallback action.
+                # If the action line is missing, default to stop for safety.
                 raw_output = send_request(args.host, args.port, images, instruction)
-                target_side, distance = extract_target_assessment(raw_output)
-                final_cmd = action_from_assessment(target_side, distance)
-                display_cmd = f"command: {final_cmd}"
+                action_text = extract_model_action_text(raw_output)
+                final_cmd = vlm_to_bridge_cmd(action_text)
 
-                if args.raw:
-                    print("[raw]", flush=True)
-                    print(raw_output, flush=True)
-                if target_side is not None:
-                    print(f"[target_side] {target_side}", flush=True)
-                if distance is not None:
-                    print(f"[distance] {distance}", flush=True)
-                print(display_cmd, flush=True)
+                print("[raw]", flush=True)
+                print(raw_output, flush=True)
+                print(f"[target_side] {action_text}", flush=True)
+                print(f"command: {final_cmd}", flush=True)
 
                 should_send = True
                 if args.dedupe and final_cmd == last_sent_cmd:
                     should_send = False
 
                 if should_send:
-                    _print_separator("bridge", request_index)
-                    print(f"[bridge] send: {final_cmd}", flush=True)
                     bridge.send(final_cmd)
                     last_sent_cmd = final_cmd
-                elif args.dedupe:
-                    _print_separator("bridge", request_index)
-                    print(f"[bridge] skipped duplicate command: {final_cmd}", flush=True)
 
             if args.once:
                 return 0

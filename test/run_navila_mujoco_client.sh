@@ -24,6 +24,7 @@ WINDOW_DIR="${WINDOW_DIR:-${DEX_ROOT}/runtime/navila_windows}"
 PROMPT_JSON="${PROMPT_JSON:-test/navila_box_testset/prompt_bag_area.json}"
 CLIENT_LOG_DIR="${CLIENT_LOG_DIR:-${DEX_ROOT}/runtime/logs}"
 CLIENT_LOG_FILE="${CLIENT_LOG_FILE:-${CLIENT_LOG_DIR}/navila_client_$(date +%Y%m%d_%H%M%S).log}"
+NAVILA_LOG_KEEP="${NAVILA_LOG_KEEP:-20}"
 NAVILA_CONTROL_FIFO="${NAVILA_CONTROL_FIFO:-${DEX_ROOT}/runtime/navila_control.fifo}"
 
 # -------------------------------
@@ -46,6 +47,15 @@ mkdir -p "$CLIENT_LOG_DIR"
 mkdir -p "$IMAGES_DIR"
 mkdir -p "$(dirname "$NAVILA_CONTROL_FIFO")"
 rm -f "$NAVILA_CONTROL_FIFO"
+
+# Rotate client logs: keep at most NAVILA_LOG_KEEP latest files (filenames sort
+# chronologically because they embed YYYYMMDD_HHMMSS).
+if [ "$NAVILA_LOG_KEEP" -gt 0 ] 2>/dev/null; then
+  ls -1 "$CLIENT_LOG_DIR"/navila_client_*.log 2>/dev/null \
+    | sort \
+    | head -n "-$NAVILA_LOG_KEEP" \
+    | xargs -r rm -f
+fi
 
 echo "[NAVILA_CLIENT] DEX_ROOT=$DEX_ROOT"
 echo "[NAVILA_CLIENT] HOLOSOMA_ROOT=$HOLOSOMA_ROOT"

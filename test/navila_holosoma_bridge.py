@@ -236,7 +236,6 @@ class HolosomaRos2Backend(BackendBase):
             self.state_pub.publish(msg)
             self._rclpy.spin_once(self.node, timeout_sec=0.01)
             self._last_state_text = text
-            print(f"[ros2] state={text}", flush=True)
 
     def start_policy(self) -> None:
         self._publish_state("start", force=True)
@@ -266,7 +265,6 @@ class HolosomaRos2Backend(BackendBase):
             msg.twist.angular.z = float(max(-1.0, min(1.0, wz)))
             self.cmd_pub.publish(msg)
             self._rclpy.spin_once(self.node, timeout_sec=0.01)
-            print(f"[ros2] cmd_vel vx={msg.twist.linear.x:.3f} vy={msg.twist.linear.y:.3f} wz={msg.twist.angular.z:.3f}", flush=True)
 
     def zero_velocity(self) -> None:
         self.send_velocity(0.0, 0.0, 0.0)
