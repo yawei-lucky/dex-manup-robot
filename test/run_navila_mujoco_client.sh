@@ -17,7 +17,7 @@ VLM_PORT="${VLM_PORT:-54321}"
 # -------------------------------
 # Path config
 # -------------------------------
-HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/holosoma}"
+HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/nav_holosoma}"
 
 IMAGES_DIR="${IMAGES_DIR:-${HOLOSOMA_ROOT}/runtime_image_file/navila_mujoco_stream}"
 WINDOW_DIR="${WINDOW_DIR:-${DEX_ROOT}/runtime/navila_windows}"
@@ -54,7 +54,8 @@ if [ "$NAVILA_LOG_KEEP" -gt 0 ] 2>/dev/null; then
   ls -1 "$CLIENT_LOG_DIR"/navila_client_*.log 2>/dev/null \
     | sort \
     | head -n "-$NAVILA_LOG_KEEP" \
-    | xargs -r rm -f
+    | xargs -r rm -f \
+    || true
 fi
 
 echo "[NAVILA_CLIENT] DEX_ROOT=$DEX_ROOT"
@@ -86,7 +87,7 @@ if [ "${NAVILA_IGNORE_EXISTING_FRAMES:-1}" = "1" ]; then
   IGNORE_EXISTING_FLAG="--ignore-existing"
 fi
 
-stdbuf -oL -eL python test/navila_stream_client.py \
+stdbuf -oL -eL python3 test/navila_stream_client.py \
   --host "$VLM_HOST" \
   --port "$VLM_PORT" \
   --prompt-json "$PROMPT_JSON" \
@@ -101,7 +102,7 @@ stdbuf -oL -eL python test/navila_stream_client.py \
   --raw \
   $NO_VLM_FLAG \
   $IGNORE_EXISTING_FLAG \
-  2>&1 | tee -a "$CLIENT_LOG_FILE" | awk -v log_file="$CLIENT_LOG_FILE" -v filter="${NAVILA_TERMINAL_FILTER:-1}" '
+  2>&1 | stdbuf -oL tee -a "$CLIENT_LOG_FILE" | stdbuf -oL awk -v log_file="$CLIENT_LOG_FILE" -v filter="${NAVILA_TERMINAL_FILTER:-1}" '
     BEGIN {
       no_vlm_seen = 0
       gated_seen = 0

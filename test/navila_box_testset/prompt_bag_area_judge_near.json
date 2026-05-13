@@ -1,5 +1,0 @@
-{
-  "task": "judge whether the robot has already approached the target desk area closely enough",
-  "target_object": "target desk area",
-  "prompt": "Task: judge whether the robot has already approached the target desk area closely enough.\n\nLook at the image history. The target is the desk with the black backpack on it.\nIf the desk surface and the backpack already occupy a large portion of the image, and the robot appears to be already at the desk area, classify the target as near or very close.\nIf the desk and backpack are still small in the image, classify the target as far away.\n\nOutput exactly 2 lines and nothing else.\nLine 1:\ntarget_state: <left/right/center/not visible>, <far away/near/very close>\nLine 2:\naction: <move forward 25 centimeters/move forward 50 centimeters/stop/turn left by 15 degrees/turn right by 15 degrees>\n"
-}

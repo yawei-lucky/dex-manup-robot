@@ -19,7 +19,7 @@ cat <<EOF
 
 Simulator (run first, in a separate terminal):
 
-  cd ~/robotics/holosoma && bash scripts/run_navila_mujoco_stream.sh
+  cd ~/robotics/nav_holosoma && bash scripts/run_navila_mujoco_stream.sh
 
 Launch commands:
 

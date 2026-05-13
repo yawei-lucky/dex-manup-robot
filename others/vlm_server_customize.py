@@ -119,16 +119,19 @@ class VLMServer:
         image_tensor = process_images(images, self.image_processor, self.model.config)
         image_tensor = image_tensor.to(self.args.device, dtype=torch.float16)
 
-        # Only keep the minimal frame-ordering preamble that NaVILA expects
-        # (historical frames + current frame); the task description and the
-        # required output format are fully controlled by the caller's query.
+        # Prepare prompt
         conv = conv_templates[self.args.conv_mode].copy()
+        instruction = query
         image_token = "<image>\n"
-        historical_tokens = image_token * (self.args.num_video_frames - 1)
         qs = (
-            f"You have been given a video of historical observations {historical_tokens}"
-            f"and current observation <image>\n"
-            f"{query}"
+            f"Imagine you are a robot programmed for navigation tasks. You have been given a video "
+            f'of historical observations {image_token * (self.args.num_video_frames-1)}, and current observation <image>\n. Your assigned task is: "{instruction}" '
+            f"Analyze this series of images to decide your next action, which could be turning left or right by a specific "
+            f"degree, moving forward a certain distance, or stop if the task is completed."
+            f"\nBefore giving your final answer, provide a brief 'Reason' field that describes: "
+            f"(1) the distance to the target object (e.g., near, medium, far), and "
+            f"(2) the direction of the target object relative to the robot (e.g., front-left, front-right, left, right, center). "
+            f"Format: 'Reason: <distance and direction description>'"
         )
         conv.append_message(conv.roles[0], qs)
         conv.append_message(conv.roles[1], None)
@@ -156,7 +159,7 @@ class VLMServer:
                 images=[image_tensor],
                 do_sample=False,
                 num_beams=1,
-                max_new_tokens=192,  # short structured output; prevents the model from continuing to ramble
+                max_new_tokens=512,
                 use_cache=True,
                 stopping_criteria=[stopping_criteria],
                 pad_token_id=self.tokenizer.eos_token_id,

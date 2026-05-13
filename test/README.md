@@ -16,22 +16,19 @@ Launches a 4-pane Terminator layout: MuJoCo camera stream, Holosoma policy, NaVI
 # Default: no VLM, manual keyboard control only
 bash test/launch_navila_closed_loop.sh
 
-# With VLM inference enabled
-1: start the NaVILA VLM server
+# Default: VLM, manual keyboard control only
+NAVILA_NO_VLM=0 bash test/launch_navila_closed_loop.sh
+```
 
-conda activate navila-server
-cd ~/NaVILA-Bench
+## Quick Start: One-Key Closed-Loop Real
 
-python scripts/vlm_server.py \
-  --model_path ~/models/navila-llama3-8b-8f \
-  --port 54321
-
-2: NAVILA_NO_VLM=0 bash test/launch_navila_closed_loop.sh
-
-# Real robot (no MuJoCo stream, slower speeds, real network interface)
+# Real robot (no VLM, manual keyboard control only, slower speeds)
+```
 NAVILA_MODE=real HOLOSOMA_INTERFACE=enp4s0 bash test/launch_navila_closed_loop.sh
+```
 
 # Real robot + VLM (first start the vlm server as in sim)
+```
 NAVILA_MODE=real HOLOSOMA_INTERFACE=enp4s0 NAVILA_NO_VLM=0 VLM_HOST=<ip> bash test/launch_navila_closed_loop.sh
 ```
 

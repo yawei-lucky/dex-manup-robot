@@ -568,13 +568,15 @@ def main() -> int:
                 # Bare-bones path: trust the VLM's action line verbatim. No
                 # magnitude inference, no target_state-derived fallback action.
                 # If the action line is missing, default to stop for safety.
+                print(f"[vlm] querying {args.host}:{args.port}...", flush=True)
+                _t0 = time.time()
                 raw_output = send_request(args.host, args.port, images, instruction)
+                print(f"[vlm] response in {time.time() - _t0:.2f}s", flush=True)
                 action_text = extract_model_action_text(raw_output)
                 final_cmd = vlm_to_bridge_cmd(action_text)
 
                 print("[raw]", flush=True)
                 print(raw_output, flush=True)
-                print(f"[target_side] {action_text}", flush=True)
                 print(f"command: {final_cmd}", flush=True)
 
                 should_send = True

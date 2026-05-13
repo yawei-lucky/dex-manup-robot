@@ -17,7 +17,7 @@ CAMERA_SERVER="tcp://${CAMERA_HOST}:${CAMERA_PORT}"
 # -------------------------------
 # Path config
 # -------------------------------
-HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/holosoma}"
+HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/nav_holosoma}"
 IMAGES_DIR="${IMAGES_DIR:-${HOLOSOMA_ROOT}/runtime_image_file/navila_mujoco_stream}"
 
 # -------------------------------

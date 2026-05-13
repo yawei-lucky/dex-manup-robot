@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/holosoma}"
+HOLOSOMA_ROOT="${HOLOSOMA_ROOT:-${HOME}/robotics/nav_holosoma}"
 # HOLOSOMA_INTERFACE="${HOLOSOMA_INTERFACE:-lo}"
 HOLOSOMA_INTERFACE="${HOLOSOMA_INTERFACE:-enp4s0}"
 
