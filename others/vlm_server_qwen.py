@@ -18,7 +18,10 @@ class QwenVLMServer:
         dashscope.api_key = api_key
         self.model = args.model
         self.enable_thinking = args.enable_thinking
-        print(f"[qwen] model={args.model} enable_thinking={self.enable_thinking}")
+        self.image_max_width = args.image_max_width
+        self.image_quality = args.image_quality
+        print(f"[qwen] model={args.model} enable_thinking={self.enable_thinking} "
+              f"image_max_width={self.image_max_width} image_quality={self.image_quality}")
 
     def start_server(self, host="localhost", port=54321):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -56,15 +59,26 @@ class QwenVLMServer:
                 conn.close()
 
     def _images_to_data_uris(self, images):
-        """Convert incoming images (base64 strings or PIL) to data: URIs without disk I/O."""
+        """Decode → optional resize → JPEG re-encode → data: URI. Reduces tokens sent to Qwen."""
         uris = []
         for img_data in images:
             if isinstance(img_data, str):
-                b64 = img_data
+                try:
+                    pil_img = Image.open(BytesIO(base64.b64decode(img_data))).convert("RGB")
+                except Exception as e:
+                    print(f"[qwen] error decoding image: {e}; using black fallback")
+                    pil_img = Image.new("RGB", (224, 224), 0)
             else:
-                buf = BytesIO()
-                img_data.convert("RGB").save(buf, "JPEG", quality=90)
-                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                pil_img = img_data.convert("RGB")
+
+            if self.image_max_width and pil_img.width > self.image_max_width:
+                new_w = self.image_max_width
+                new_h = int(pil_img.height * new_w / pil_img.width)
+                pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+
+            buf = BytesIO()
+            pil_img.save(buf, "JPEG", quality=self.image_quality)
+            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
             uris.append(f"data:image/jpeg;base64,{b64}")
         return uris
 
@@ -114,11 +128,15 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=54321)
     parser.add_argument("--api-key", type=str, default=None,
                         help="Qwen/DashScope API key (or set DASHSCOPE_API_KEY env var)")
-    parser.add_argument("--model", type=str, default="qwen3.6-flash",
+    parser.add_argument("--model", type=str, default="qwen3.6-plus",
                         help="Qwen VL model name (qwen3.6-flash, qwen3-vl-flash, etc)")
     parser.add_argument("--num-video-frames", type=int, default=8)
     parser.add_argument("--enable-thinking", action="store_true",
                         help="Enable Qwen3 thinking mode (slower but more reasoning). Default: off (instant mode).")
+    parser.add_argument("--image-max-width", type=int, default=320,
+                        help="Resize each image so width is at most this many pixels (keeps aspect). 0 disables. Default: 320.")
+    parser.add_argument("--image-quality", type=int, default=70,
+                        help="JPEG quality for the re-encoded images (1-95). Default: 70.")
     args = parser.parse_args()
 
     server = QwenVLMServer(args)

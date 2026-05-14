@@ -580,8 +580,6 @@ def main() -> int:
     seen_paths: set[str] = set()
     sequential_buffer: Deque[Path] = deque(maxlen=args.keep_last)
     request_index = 0
-    stop_streak = 0  # consecutive VLM responses whose only command was 'stop'
-    STOP_CONFIRM_N = 3  # require this many consecutive stops before actually halting
     last_visible_side: Optional[str] = None  # 'right' / 'left' / 'center' from the last non-lost Reason
     search_dir_lock: Optional[str] = None    # 'right' / 'left' enforced while searching
 
@@ -689,7 +687,6 @@ def main() -> int:
                         last_visible_side = reason_side
                     search_dir_lock = None
                 else:
-                    stop_streak = 0  # don't accumulate stop confirmations while searching
                     if search_dir_lock is None:
                         if last_visible_side in ("right", "left"):
                             search_dir_lock = last_visible_side
@@ -725,29 +722,6 @@ def main() -> int:
                     if not forced:
                         forced = [f"turn {search_dir_lock} 30 degrees"]
                     final_cmds = forced
-
-                # ---- Stop-hysteresis (skipped while searching above) ----
-                vlm_says_stop = (
-                    not target_lost
-                    and len(final_cmds) == 1
-                    and final_cmds[0] == "stop"
-                )
-                if vlm_says_stop:
-                    stop_streak += 1
-                    if stop_streak < STOP_CONFIRM_N:
-                        held = "move forward 0.1 meters"
-                        print(
-                            f"[stop-hysteresis] stop #{stop_streak}/{STOP_CONFIRM_N} held; sending {held} instead",
-                            flush=True,
-                        )
-                        final_cmds = [held]
-                    else:
-                        print(
-                            f"[stop-hysteresis] stop confirmed ({stop_streak} in a row); forwarding stop",
-                            flush=True,
-                        )
-                elif not target_lost:
-                    stop_streak = 0
 
                 for cmd in final_cmds:
                     print(f"Bridge COMMAND: {cmd}", flush=True)
