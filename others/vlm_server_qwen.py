@@ -17,7 +17,8 @@ class QwenVLMServer:
             raise ValueError("No API key. Set --api-key or DASHSCOPE_API_KEY env var.")
         dashscope.api_key = api_key
         self.model = args.model
-        print(f"[qwen] model={args.model}")
+        self.enable_thinking = args.enable_thinking
+        print(f"[qwen] model={args.model} enable_thinking={self.enable_thinking}")
 
     def start_server(self, host="localhost", port=54321):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -87,7 +88,11 @@ class QwenVLMServer:
 
         try:
             t0 = time.time()
-            response = MultiModalConversation.call(model=self.model, messages=messages)
+            response = MultiModalConversation.call(
+                model=self.model,
+                messages=messages,
+                enable_thinking=self.enable_thinking,
+            )
             print(f"[qwen] inference took {time.time() - t0:.2f}s")
             if response.status_code != 200:
                 err = f"Error: {response.code} {response.message}"
@@ -109,9 +114,11 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=54321)
     parser.add_argument("--api-key", type=str, default=None,
                         help="Qwen/DashScope API key (or set DASHSCOPE_API_KEY env var)")
-    parser.add_argument("--model", type=str, default="qwen-vl-max",
-                        help="Qwen VL model name (qwen-vl-max, qwen-vl-plus, etc.)")
+    parser.add_argument("--model", type=str, default="qwen3.6-flash",
+                        help="Qwen VL model name (qwen3.6-flash, qwen3-vl-flash, etc)")
     parser.add_argument("--num-video-frames", type=int, default=8)
+    parser.add_argument("--enable-thinking", action="store_true",
+                        help="Enable Qwen3 thinking mode (slower but more reasoning). Default: off (instant mode).")
     args = parser.parse_args()
 
     server = QwenVLMServer(args)

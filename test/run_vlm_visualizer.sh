@@ -27,7 +27,7 @@ echo "[vis] log : $LOG"
 echo "[vis] html: $HTML"
 echo "[vis] regenerate every ${INTERVAL}s; browser auto-refreshes via <meta refresh>"
 
-python3 test/analyze_vlm_log.py --watch --interval "$INTERVAL" --oldest-first "$LOG" &
+python3 test/analyze_vlm_log.py --watch --interval "$INTERVAL" "$LOG" &
 WATCH_PID=$!
 trap 'kill "$WATCH_PID" 2>/dev/null || true' EXIT INT TERM
 

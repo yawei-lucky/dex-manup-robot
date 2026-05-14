@@ -39,41 +39,40 @@ def parse_log(log_path: Path) -> List[Decision]:
     img_dir: Optional[str] = None
     first_frame: Optional[str] = None
     last_frame: Optional[str] = None
-    raw_lines: List[str] = []
-    in_raw = False
+    reason_line: Optional[str] = None
     target_side: Optional[str] = None
     distance: Optional[str] = None
-    command: Optional[str] = None
+    commands: List[str] = []
 
     def flush() -> None:
-        nonlocal req_idx, img_dir, first_frame, last_frame, raw_lines, in_raw
-        nonlocal target_side, distance, command
+        nonlocal req_idx, img_dir, first_frame, last_frame, reason_line
+        nonlocal target_side, distance, commands
         if req_idx is not None:
-            raw_text = "\n".join(raw_lines).strip()
-            ts: Optional[str] = None
-            m = re.search(r"^target_state\s*:\s*(.+)", raw_text, re.IGNORECASE | re.MULTILINE)
-            if m:
-                ts = m.group(1).strip()
+            raw_text = reason_line or ""
+            if commands:
+                raw_text = (raw_text + "\n" if raw_text else "") + "\n".join(
+                    f"Action: {c}" for c in commands
+                )
+            command_joined = " → ".join(commands) if commands else None
             decisions.append(Decision(
                 request_idx=req_idx,
                 img_dir=img_dir,
                 first_frame=first_frame,
                 last_frame=last_frame,
                 raw_vlm=raw_text,
-                target_state=ts,
+                target_state=None,
                 target_side=target_side,
                 distance=distance,
-                command=command,
+                command=command_joined,
             ))
         req_idx = None
         img_dir = None
         first_frame = None
         last_frame = None
-        raw_lines = []
-        in_raw = False
+        reason_line = None
         target_side = None
         distance = None
-        command = None
+        commands = []
 
     with log_path.open(encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -84,11 +83,6 @@ def parse_log(log_path: Path) -> List[Decision]:
             if m:
                 flush()
                 req_idx = int(m.group(1))
-                continue
-
-            # Non-window section headers → stop raw mode
-            if re.match(r"=+ request \d+ \| (vlm|bridge) =+", line):
-                in_raw = False
                 continue
 
             if req_idx is None:
@@ -105,42 +99,28 @@ def parse_log(log_path: Path) -> List[Decision]:
                 last_frame = m.group(3).strip()
                 continue
 
-            # Raw VLM block start
-            if line == "[raw]":
-                in_raw = True
+            # VLM reasoning line
+            m = re.match(r"Reason:\s*(.+)$", line, re.IGNORECASE)
+            if m:
+                reason_line = m.group(1).strip()
                 continue
 
-            # Lines that end the raw block
-            if in_raw and (
-                line.startswith("[target_side]")
-                or line.startswith("command:")
-                or line.startswith("[bridge]")
-                or line.startswith("[gate]")
-                or line.startswith("[no-vlm]")
-            ):
-                in_raw = False
-                # fall through to handle this line normally
-
-            if in_raw:
-                raw_lines.append(line)
+            # Bridge command line(s) — may appear multiple times per request
+            m = re.match(r"Bridge COMMAND:\s*(.+)$", line, re.IGNORECASE)
+            if m:
+                commands.append(m.group(1).strip())
                 continue
 
-            # Extracted target_side
+            # Extracted target_side (legacy bridge output, still useful if present)
             m = re.match(r"\[target_side\] (.+)$", line)
             if m:
                 target_side = m.group(1).strip()
                 continue
 
-            # Distance assessment line
+            # Distance assessment line (legacy)
             m = re.match(r"\[distance\] (.+)$", line)
             if m:
                 distance = m.group(1).strip()
-                continue
-
-            # Final command
-            m = re.match(r"command: (.+)$", line)
-            if m:
-                command = m.group(1).strip()
                 continue
 
     flush()

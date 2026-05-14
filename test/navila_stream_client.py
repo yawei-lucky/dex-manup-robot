@@ -93,16 +93,18 @@ def load_images(paths: List[Path]) -> List[Image.Image]:
     return images
 
 
-def sample_to_8_frames(images: List[Image.Image]) -> List[Image.Image]:
+def sample_to_n_frames(images: List[Image.Image], n: int = 8) -> List[Image.Image]:
     if len(images) == 0:
         raise ValueError("No images provided.")
+    if n < 1:
+        raise ValueError("n must be >= 1.")
 
-    if len(images) < 8:
-        pad = [Image.new("RGB", images[-1].size, (0, 0, 0)) for _ in range(8 - len(images))]
+    if len(images) < n:
+        pad = [Image.new("RGB", images[-1].size, (0, 0, 0)) for _ in range(n - len(images))]
         images = pad + images
-    elif len(images) > 8:
-        n = len(images)
-        indices = [int(i * (n - 1) / 7) for i in range(7)]
+    elif len(images) > n:
+        total = len(images)
+        indices = [int(i * (total - 1) / (n - 1)) for i in range(n - 1)] if n > 1 else []
         images = [images[i] for i in indices] + [images[-1]]
 
     return images
@@ -218,18 +220,105 @@ def extract_model_action(text: str) -> Optional[str]:
 
 
 def extract_model_action_text(text: str) -> Optional[str]:
-    """Return an action string from the VLM output, untouched magnitude included.
+    """Backwards-compatible single-action accessor — returns the first Action line."""
+    actions = extract_model_actions(text)
+    return actions[0] if actions else None
 
-    Tries the structured 'action: <text>' format first; falls back to the raw
-    cleaned output when the model speaks navila's native free-form style
-    (e.g. "turn right 15 degrees.").
+
+def extract_model_actions(text: str) -> list[str]:
+    """Return ALL VLM action strings, in the order they appear.
+
+    Order of preference:
+    1. Every explicit "Action: <text>" line (supports 1+ actions per response).
+    2. Last non-empty line that is NOT the "Reason:" line (legacy free-form path).
+
+    We deliberately do not fall back to the entire cleaned text — words like
+    "stop"/"stopping" inside the Reason paragraph would otherwise be picked up
+    by vlm_to_bridge_cmd and falsely turn every command into "stop".
     """
     cleaned = _cleanup_text(text)
-    m = re.search(r"action\s*:\s*([^\n]+)", cleaned, re.IGNORECASE)
-    if m:
-        return m.group(1).strip().rstrip(".")
-    flat = cleaned.replace("\n", " ").strip().rstrip(".")
-    return flat or None
+    matches = re.findall(r"action\s*:\s*([^\n]+)", cleaned, re.IGNORECASE)
+    actions = [m.strip().rstrip(".") for m in matches if m.strip()]
+    if actions:
+        return actions
+    for line in reversed(cleaned.splitlines()):
+        candidate = line.strip().rstrip(".")
+        if not candidate:
+            continue
+        if candidate.startswith("reason:"):
+            continue
+        return [candidate]
+    return []
+
+
+def extract_reason_line(text: str) -> Optional[str]:
+    """Return the content of the 'Reason:' line, if present."""
+    cleaned = _cleanup_text(text)
+    m = re.search(r"reason\s*:\s*([^\n]+)", cleaned, re.IGNORECASE)
+    if not m:
+        return None
+    return m.group(1).strip().rstrip(".")
+
+
+_LOST_KEYWORDS = ("not visible", "never seen", "never-seen", "lost", "out of view", "no longer visible")
+
+
+def is_reason_lost(reason: Optional[str]) -> bool:
+    """True when the Reason line indicates the target is currently lost / unseen."""
+    if not reason:
+        return False
+    r = reason.lower()
+    return any(kw in r for kw in _LOST_KEYWORDS)
+
+
+_DIRECTION_TOKENS = (
+    ("lost-was-right", "right"),
+    ("lost-was-left", "left"),
+    ("front-right", "right"),
+    ("front-left", "left"),
+    ("right", "right"),
+    ("left", "left"),
+    ("center", "center"),
+)
+
+
+_DIRECTION_TOKEN_MAP = dict(_DIRECTION_TOKENS)
+
+
+def extract_reason_side(reason: Optional[str]) -> Optional[str]:
+    """Return 'right' / 'left' / 'center' based on the direction keyword in the Reason line.
+
+    Strategy: prefer the second comma-separated field (the structured 'direction'
+    slot). Fall back to scanning the whole Reason for an enumerated token, but only
+    match enumerated tokens; never let free-form prose like "left side of the desk"
+    leak a direction.
+    """
+    if not reason:
+        return None
+    r = reason.lower()
+    parts = [p.strip() for p in r.split(",")]
+    if len(parts) >= 2 and parts[1] in _DIRECTION_TOKEN_MAP:
+        return _DIRECTION_TOKEN_MAP[parts[1]]
+    for token, side in _DIRECTION_TOKENS:
+        if re.search(rf"(?:^|[\s,]){re.escape(token)}(?:$|[\s,])", r):
+            return side
+    return None
+
+
+def turn_direction_of(cmd: str) -> Optional[str]:
+    """Return 'left' / 'right' if cmd is a turn command, else None."""
+    s = cmd.lower()
+    if "turn left" in s:
+        return "left"
+    if "turn right" in s:
+        return "right"
+    return None
+
+
+def flip_turn_direction(cmd: str, target_dir: str) -> str:
+    """Rewrite a 'turn left/right N degrees' command to use target_dir, preserving magnitude."""
+    other = "right" if target_dir == "left" else "left"
+    return re.sub(rf"\bturn\s+{other}\b", f"turn {target_dir}", cmd, count=1, flags=re.IGNORECASE)
 
 
 _VLM_TURN_RE = re.compile(
@@ -491,6 +580,10 @@ def main() -> int:
     seen_paths: set[str] = set()
     sequential_buffer: Deque[Path] = deque(maxlen=args.keep_last)
     request_index = 0
+    stop_streak = 0  # consecutive VLM responses whose only command was 'stop'
+    STOP_CONFIRM_N = 3  # require this many consecutive stops before actually halting
+    last_visible_side: Optional[str] = None  # 'right' / 'left' / 'center' from the last non-lost Reason
+    search_dir_lock: Optional[str] = None    # 'right' / 'left' enforced while searching
 
     if args.ingest_mode == "sequential" and args.ignore_existing:
         existing_paths = list_ordered_image_paths(args.images_dir, args.pattern, args.sort_by)
@@ -559,7 +652,7 @@ def main() -> int:
                 request_index,
                 verbose_window_log=args.verbose_window_log,
             )
-            images = sample_to_8_frames(images)
+            images = sample_to_n_frames(images, n=args.keep_last)
 
             if args.no_vlm:
                 _print_separator("vlm", request_index)
@@ -572,20 +665,96 @@ def main() -> int:
                 _t0 = time.time()
                 raw_output = send_request(args.host, args.port, images, instruction)
                 print(f"[vlm] response in {time.time() - _t0:.2f}s", flush=True)
-                action_text = extract_model_action_text(raw_output)
-                final_cmd = vlm_to_bridge_cmd(action_text)
 
-                print("[raw]", flush=True)
-                print(raw_output, flush=True)
-                print(f"command: {final_cmd}", flush=True)
+                reason_line = extract_reason_line(raw_output)
+                if reason_line:
+                    print(f"Reason: {reason_line}", flush=True)
 
-                should_send = True
-                if args.dedupe and final_cmd == last_sent_cmd:
-                    should_send = False
+                action_texts = extract_model_actions(raw_output)
+                if not action_texts:
+                    final_cmds = ["stop"]
+                else:
+                    final_cmds = [vlm_to_bridge_cmd(a) for a in action_texts]
 
-                if should_send:
-                    bridge.send(final_cmd)
-                    last_sent_cmd = final_cmd
+                # ---- Search-mode override ----
+                # When the VLM reports the target as lost, force the robot to
+                # rotate in place toward the side where it was last reliably
+                # seen. Never alternate search direction, never advance forward
+                # while searching.
+                target_lost = is_reason_lost(reason_line)
+                reason_side = extract_reason_side(reason_line)
+
+                if not target_lost:
+                    if reason_side in ("right", "left"):
+                        last_visible_side = reason_side
+                    search_dir_lock = None
+                else:
+                    stop_streak = 0  # don't accumulate stop confirmations while searching
+                    if search_dir_lock is None:
+                        if last_visible_side in ("right", "left"):
+                            search_dir_lock = last_visible_side
+                            origin = f"last_visible_side={last_visible_side}"
+                        else:
+                            vlm_turn = next(
+                                (turn_direction_of(c) for c in final_cmds if turn_direction_of(c)),
+                                None,
+                            )
+                            search_dir_lock = vlm_turn or "right"
+                            origin = "VLM turn" if vlm_turn else "default=right"
+                        print(
+                            f"[search] target lost; locking search direction to {search_dir_lock} ({origin})",
+                            flush=True,
+                        )
+
+                    forced = []
+                    for cmd in final_cmds:
+                        td = turn_direction_of(cmd)
+                        if td is None:
+                            # Drop forward/stop while searching — robot must spin in place.
+                            print(f"[search] suppressing non-turn command while lost: {cmd}", flush=True)
+                            continue
+                        if td != search_dir_lock:
+                            flipped = flip_turn_direction(cmd, search_dir_lock)
+                            print(
+                                f"[search] flipping wrong-way turn: {cmd} → {flipped}",
+                                flush=True,
+                            )
+                            forced.append(flipped)
+                        else:
+                            forced.append(cmd)
+                    if not forced:
+                        forced = [f"turn {search_dir_lock} 30 degrees"]
+                    final_cmds = forced
+
+                # ---- Stop-hysteresis (skipped while searching above) ----
+                vlm_says_stop = (
+                    not target_lost
+                    and len(final_cmds) == 1
+                    and final_cmds[0] == "stop"
+                )
+                if vlm_says_stop:
+                    stop_streak += 1
+                    if stop_streak < STOP_CONFIRM_N:
+                        held = "move forward 0.1 meters"
+                        print(
+                            f"[stop-hysteresis] stop #{stop_streak}/{STOP_CONFIRM_N} held; sending {held} instead",
+                            flush=True,
+                        )
+                        final_cmds = [held]
+                    else:
+                        print(
+                            f"[stop-hysteresis] stop confirmed ({stop_streak} in a row); forwarding stop",
+                            flush=True,
+                        )
+                elif not target_lost:
+                    stop_streak = 0
+
+                for cmd in final_cmds:
+                    print(f"Bridge COMMAND: {cmd}", flush=True)
+                    if args.dedupe and cmd == last_sent_cmd:
+                        continue
+                    bridge.send(cmd)
+                    last_sent_cmd = cmd
 
             if args.once:
                 return 0

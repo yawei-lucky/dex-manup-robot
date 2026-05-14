@@ -72,7 +72,6 @@ echo "[NAVILA_CLIENT] NAVILA_BOOTSTRAP_STAND=$NAVILA_BOOTSTRAP_STAND"
 echo "[NAVILA_CLIENT] NAVILA_NO_INIT_POSE=$NAVILA_NO_INIT_POSE"
 echo "[NAVILA_CLIENT] NAVILA_NO_VLM=${NAVILA_NO_VLM:-1}"
 echo "[NAVILA_CLIENT] NAVILA_IGNORE_EXISTING_FRAMES=${NAVILA_IGNORE_EXISTING_FRAMES:-1}"
-echo "[NAVILA_CLIENT] NAVILA_TERMINAL_FILTER=${NAVILA_TERMINAL_FILTER:-1}"
 echo "[NAVILA_CLIENT] Full log is recorded at: $CLIENT_LOG_FILE"
 echo "[NAVILA_CLIENT] Type 'go' into the manual-control console to enable VLM bridge execution."
 echo "[NAVILA_CLIENT] Manual commands: stop, pause, move forward 25 centimeters, turn left 15 degrees."
@@ -87,13 +86,13 @@ if [ "${NAVILA_IGNORE_EXISTING_FRAMES:-1}" = "1" ]; then
   IGNORE_EXISTING_FLAG="--ignore-existing"
 fi
 
-stdbuf -oL -eL python3 test/navila_stream_client.py \
+stdbuf -oL -eL python3 -u test/navila_stream_client.py \
   --host "$VLM_HOST" \
   --port "$VLM_PORT" \
   --prompt-json "$PROMPT_JSON" \
   --images-dir "$IMAGES_DIR" \
   --pattern "*.jpg" \
-  --keep-last 8 \
+  --keep-last "${NAVILA_KEEP_LAST:-4}" \
   --sort-by name \
   --ingest-mode sequential \
   --require-full-window \
@@ -102,75 +101,4 @@ stdbuf -oL -eL python3 test/navila_stream_client.py \
   --raw \
   $NO_VLM_FLAG \
   $IGNORE_EXISTING_FLAG \
-  2>&1 | stdbuf -oL tee -a "$CLIENT_LOG_FILE" | stdbuf -oL awk -v log_file="$CLIENT_LOG_FILE" -v filter="${NAVILA_TERMINAL_FILTER:-1}" '
-    BEGIN {
-      no_vlm_seen = 0
-      gated_seen = 0
-      request_lines_suppressed = 0
-    }
-    function print_once(key, line) {
-      if (!seen[key]) {
-        print line
-        fflush()
-        seen[key] = 1
-      }
-    }
-    filter != "1" {
-      print
-      fflush()
-      next
-    }
-    /^\[raw\]/ {
-      in_raw = 1
-      request_lines_suppressed = 1
-      next
-    }
-    in_raw && (/^==========/ || /^\[target_side\]/ || /^command:/ || /^\[bridge\]/) {
-      in_raw = 0
-    }
-    in_raw {
-      request_lines_suppressed = 1
-      next
-    }
-    /^\[NAVILA_CLIENT\]/ || /^\[gate\] bridge started/ || /^\[gate\] control FIFO/ ||
-    /^\[gate\] VLM command forwarding/ || /^\[gate\] shutdown/ ||
-    /^\[ros2\] waiting/ || /^\[ros2\] Holosoma subscribers ready/ ||
-    /^\[bootstrap\]/ || /^\[bridge\] stdin closed/ || /^\[exec\]/ ||
-    /^\[ros2\] state=/ || /^\[ros2\] cmd_vel/ ||
-    /^\[gate\] forward manual/ || /^\[gate\] manual stop/ ||
-    /^\[gate\] unsupported manual/ || /^\[manual-console\]/ {
-      print
-      fflush()
-      next
-    }
-    /^\[no-vlm\]/ {
-      print_once("no_vlm", "[vlm] disabled; use manual control. Full VLM/window logs: " log_file)
-      next
-    }
-    /^\[gate\] VLM command gated/ {
-      print_once("vlm_gated", "[vlm] locked; type go to enable. Repeated VLM commands are in log: " log_file)
-      next
-    }
-    /^Traceback/ || /^RuntimeError/ || /^ConnectionRefusedError/ || /^BrokenPipeError/ ||
-    /^\[wait\]/ || /^\[startup\]/ {
-      print
-      fflush()
-      next
-    }
-    /^========== request/ || /^\[window\]/ || /^\[target_side\]/ ||
-    /^target_state:/ || /^action:/ || /^command:/ || /^\[bridge\] send:/ ||
-    /^\[bridge\] skipped duplicate/ || /^\[gate\] forward vlm/ {
-      request_lines_suppressed = 1
-      next
-    }
-    {
-      print
-      fflush()
-    }
-    END {
-      if (request_lines_suppressed) {
-        print "[terminal] request/window/VLM command spam hidden; inspect full log: " log_file
-        fflush()
-      }
-    }
-  '
+  2>&1 | stdbuf -oL tee -a "$CLIENT_LOG_FILE"

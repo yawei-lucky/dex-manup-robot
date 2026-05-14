@@ -35,8 +35,11 @@ LAYOUT_FILE="${RUNTIME_DIR}/terminator_navila_closed_loop.conf"
 
 mkdir -p "$RUNTIME_DIR"
 
+NAVILA_SCENE="${NAVILA_SCENE:-indoor_red_shoebox}"
+PROMPT_JSON="${PROMPT_JSON:-test/navila_box_testset/prompt_red_shoebox.json}"
+
 if [ "$RUN_CAMERA_STREAM" = "1" ]; then
-    CAMERA_COMMAND="cd \"$HOLOSOMA_ROOT\"; echo \"[MuJoCo Camera Stream]\"; echo \"bash scripts/run_navila_mujoco_stream.sh\"; bash scripts/run_navila_mujoco_stream.sh; exec bash"
+    CAMERA_COMMAND="cd \"$HOLOSOMA_ROOT\"; echo \"[MuJoCo Camera Stream]\"; echo \"NAVILA_SCENE=$NAVILA_SCENE bash scripts/run_navila_mujoco_stream.sh\"; NAVILA_SCENE=\"$NAVILA_SCENE\" bash scripts/run_navila_mujoco_stream.sh; exec bash"
     CAMERA_TITLE="MuJoCo Camera Stream"
 else
     CAMERA_COMMAND="cd \"$DEX_ROOT\"; echo \"[Camera Stream Disabled]\"; echo \"NAVILA_MODE=real, so MuJoCo camera stream is not started.\"; echo \"Start your real camera/image stream separately if needed.\"; exec bash"
@@ -102,7 +105,7 @@ cat > "$LAYOUT_FILE" <<EOF
       parent = hpaned_bottom
       order = 0
       title = NaVILA Client + Bridge
-      command = bash -lc 'cd "$DEX_ROOT"; echo "[NaVILA Client + Bridge]"; echo "NAVILA_MODE=$NAVILA_MODE NAVILA_NO_VLM=$NAVILA_NO_VLM VLM_HOST=$VLM_HOST VLM_PORT=$VLM_PORT bash $CLIENT_SCRIPT"; NAVILA_MODE="$NAVILA_MODE" NAVILA_NO_VLM="$NAVILA_NO_VLM" VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" NAVILA_CONTROL_FIFO="$NAVILA_CONTROL_FIFO" NAVILA_CLIENT_INTERVAL_SEC="$NAVILA_CLIENT_INTERVAL_SEC" NAVILA_LINEAR_SPEED="$NAVILA_LINEAR_SPEED" NAVILA_ANGULAR_SPEED_DEGPS="$NAVILA_ANGULAR_SPEED_DEGPS" bash "$CLIENT_SCRIPT"; exec bash'
+      command = bash -lc 'cd "$DEX_ROOT"; echo "[NaVILA Client + Bridge]"; echo "NAVILA_MODE=$NAVILA_MODE NAVILA_NO_VLM=$NAVILA_NO_VLM VLM_HOST=$VLM_HOST VLM_PORT=$VLM_PORT PROMPT_JSON=$PROMPT_JSON bash $CLIENT_SCRIPT"; NAVILA_MODE="$NAVILA_MODE" NAVILA_NO_VLM="$NAVILA_NO_VLM" VLM_HOST="$VLM_HOST" VLM_PORT="$VLM_PORT" HOLOSOMA_ROOT="$HOLOSOMA_ROOT" NAVILA_CONTROL_FIFO="$NAVILA_CONTROL_FIFO" NAVILA_CLIENT_INTERVAL_SEC="$NAVILA_CLIENT_INTERVAL_SEC" NAVILA_LINEAR_SPEED="$NAVILA_LINEAR_SPEED" NAVILA_ANGULAR_SPEED_DEGPS="$NAVILA_ANGULAR_SPEED_DEGPS" PROMPT_JSON="$PROMPT_JSON" bash "$CLIENT_SCRIPT"; exec bash'
 
     [[[terminal_manual]]]
       type = Terminal

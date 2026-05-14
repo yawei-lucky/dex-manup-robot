@@ -23,7 +23,7 @@ IMAGES_DIR="${IMAGES_DIR:-${HOLOSOMA_ROOT}/runtime_image_file/navila_mujoco_stre
 # -------------------------------
 # Stream config
 # -------------------------------
-CAMERA_FPS="${CAMERA_FPS:-10.0}"
+CAMERA_FPS="${CAMERA_FPS:-1.5}"
 CAMERA_PREFIX="${CAMERA_PREFIX:-real}"
 CAMERA_MAX_FILES="${CAMERA_MAX_FILES:-500}"
 CAMERA_TIMEOUT_MS="${CAMERA_TIMEOUT_MS:-2000}"
