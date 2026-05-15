@@ -38,11 +38,14 @@ mkdir -p "$RUNTIME_DIR"
 NAVILA_SCENE="${NAVILA_SCENE:-indoor_red_shoebox}"
 PROMPT_JSON="${PROMPT_JSON:-test/navila_box_testset/prompt_red_shoebox.json}"
 
-if [ "$RUN_CAMERA_STREAM" = "1" ]; then
+if [ "$NAVILA_MODE" = "real" ]; then
+    CAMERA_COMMAND="cd \"$DEX_ROOT\"; echo \"[Real Camera Stream]\"; HOLOSOMA_ROOT=\"$HOLOSOMA_ROOT\" bash test/run_real_camera_client.sh; exec bash"
+    CAMERA_TITLE="Real Camera Stream"
+elif [ "$RUN_CAMERA_STREAM" = "1" ]; then
     CAMERA_COMMAND="cd \"$HOLOSOMA_ROOT\"; echo \"[MuJoCo Camera Stream]\"; echo \"NAVILA_SCENE=$NAVILA_SCENE bash scripts/run_navila_mujoco_stream.sh\"; NAVILA_SCENE=\"$NAVILA_SCENE\" bash scripts/run_navila_mujoco_stream.sh; exec bash"
     CAMERA_TITLE="MuJoCo Camera Stream"
 else
-    CAMERA_COMMAND="cd \"$DEX_ROOT\"; echo \"[Camera Stream Disabled]\"; echo \"NAVILA_MODE=real, so MuJoCo camera stream is not started.\"; echo \"Start your real camera/image stream separately if needed.\"; exec bash"
+    CAMERA_COMMAND="cd \"$DEX_ROOT\"; echo \"[Camera Stream Disabled]\"; echo \"Start your real camera/image stream separately if needed.\"; exec bash"
     CAMERA_TITLE="Camera Stream Disabled"
 fi
 
